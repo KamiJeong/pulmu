@@ -73,14 +73,20 @@ case "$COMMAND" in
     for boolean in "$PATTERN" "$SECURITY" "$COMPAT"; do [[ "$boolean" == "true" || "$boolean" == "false" ]] || pulmu_die "metadata review and Pattern flags must be true or false"; done
     declare -a selected=()
     IFS=',' read -r -a requested <<< "$AREAS"
-    if [[ "$PATTERN" == "true" ]]; then requested=(frontend design "${requested[@]}"); fi
-    for area in "${requested[@]}"; do
-      area="$(pulmu_trim "$area")"; [[ -n "$area" ]] || continue
-      [[ "$area" =~ ^[a-z][a-z0-9-]*$ ]] || pulmu_die "invalid metadata area: $area"
-      duplicate="false"
-      for existing_area in "${selected[@]}"; do [[ "$existing_area" == "$area" ]] && duplicate="true"; done
-      [[ "$duplicate" == "true" ]] || selected+=("$area")
-    done
+    if [[ "$PATTERN" == "true" ]]; then
+      if [[ "${#requested[@]}" -gt 0 ]]; then requested=(frontend design "${requested[@]}"); else requested=(frontend design); fi
+    fi
+    if [[ "${#requested[@]}" -gt 0 ]]; then
+      for area in "${requested[@]}"; do
+        area="$(pulmu_trim "$area")"; [[ -n "$area" ]] || continue
+        [[ "$area" =~ ^[a-z][a-z0-9-]*$ ]] || pulmu_die "invalid metadata area: $area"
+        duplicate="false"
+        if [[ "${#selected[@]}" -gt 0 ]]; then
+          for existing_area in "${selected[@]}"; do [[ "$existing_area" == "$area" ]] && duplicate="true"; done
+        fi
+        [[ "$duplicate" == "true" ]] || selected+=("$area")
+      done
+    fi
     [[ "${#selected[@]}" -gt 0 ]] || pulmu_die "metadata requires at least one area"
     [[ "${#selected[@]}" -le 3 ]] || pulmu_die "metadata supports at most three relevant areas"
     AREAS="$(IFS=,; printf '%s' "${selected[*]}")"
@@ -160,7 +166,9 @@ case "$COMMAND" in
     : > "$dir/changes"
     for item in "${CHANGES[@]}"; do [[ -n "$item" && "$item" != *$'\n'* ]] || pulmu_die "each change must be one non-empty line"; printf '%s\n' "$item" >> "$dir/changes"; done
     : > "$dir/review-focus"
-    for item in "${FOCUS[@]}"; do [[ -n "$item" && "$item" != *$'\n'* ]] || pulmu_die "each review focus must be one non-empty line"; printf '%s\n' "$item" >> "$dir/review-focus"; done
+    if [[ "${#FOCUS[@]}" -gt 0 ]]; then
+      for item in "${FOCUS[@]}"; do [[ -n "$item" && "$item" != *$'\n'* ]] || pulmu_die "each review focus must be one non-empty line"; printf '%s\n' "$item" >> "$dir/review-focus"; done
+    fi
     pulmu_changed_paths > "$dir/paths.z"; [[ -s "$dir/paths.z" ]] || pulmu_die "there are no changed paths to deliver"
     pulmu_metadata_write delivery_fingerprint "$(pulmu_changed_fingerprint)"
     printf 'PULMU_DELIVERY_METADATA=ready\nPULMU_TITLE=%s\n' "$TITLE"

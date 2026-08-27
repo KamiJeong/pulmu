@@ -62,6 +62,8 @@ Quench records a PASS fingerprint for the exact diff it verified. After independ
 
 Ship starts only when finalized task metadata, exact Quench PASS evidence, non-blocking Hone evidence, and delivery metadata all describe the same working tree. It stages only the recorded changed paths. The order is final-diff inspection, delivery-metadata generation, staging, cohesive commit, normal push, existing-label discovery, PR creation or reuse, available-label application, and URL reporting. Existing PR lookup is constrained by both head and base; a same-base PR is reconciled to the canonical title and body, while a wrong-base PR is not reused. A GitHub delivery succeeds only with a real pull-request URL. Ship never force-pushes, merges, assigns arbitrary people, or requests arbitrary reviewers. Existing CODEOWNERS and repository-side reviewer automation remain authoritative.
 
+GitHub delivery uses `origin` as both the normal push remote and the repository in which it creates or reuses the pull request. Pulmu does not currently automate a cross-repository pull request when `origin` is a personal fork and `upstream` is the canonical repository. Such repositories must either use the intended writable target as `origin`, or finish locally and perform the fork push and upstream pull request manually.
+
 Commit and PR titles use Conventional Commit style by default and describe the actual diff, not the original prompt. Use scope only when natural. Avoid vague titles such as `update`, `changes`, or `fix stuff`.
 
 The generated PR body contains Summary, Changes, Pulmu Forge, Verification, Risk, Review Focus, and Pulmu Metadata. Verification entries come from the actual Quench log; an unexecuted check is never shown as passed. A legacy `--body-file` is appended as supplemental context and can never replace these canonical sections. Pattern-specific review focus is included only when Pattern ran. High-risk Full Forge delivery is draft by default when configured; Full Forge alone does not force a draft.
@@ -71,6 +73,10 @@ The generated PR body contains Summary, Changes, Pulmu Forge, Verification, Risk
 The desired set is limited to `pulmu`, one type, one forge, one risk, and one to three areas. Type `bugfix` maps to `type: bug`; all other dimensions preserve their metadata values.
 
 By default Pulmu lists repository labels, applies only exact existing matches, and reports missing labels as skipped. It does not change the repository taxonomy. Missing labels are created only when `github.create_missing_labels = true` is explicitly configured. If label discovery is unavailable, every desired label is reported as skipped and PR delivery continues; Pulmu does not guess or create labels without a trustworthy inventory. Individual label-create permission/race failures are reported as skipped, and label-apply failures are reported as unapplied. Neither suppresses a valid PR URL. Labels never influence whether the PR itself is considered created.
+
+## Interrupted delivery recovery
+
+Ship records the created commit before attempting GitHub push and pull-request operations. When a later GitHub operation fails, the retained Ship metadata permits an exact, clean retry without creating a second commit. The user should repair the external condition—authentication, remote access, permissions, or GitHub availability—and retry Ship in the same orchestration session. A replacement run must first confirm a terminal `failed` or `interrupted` Run Context and a clean worktree. Recovery metadata under the Git directory is part of the resume contract and must not be deleted manually.
 
 ## Configuration
 
