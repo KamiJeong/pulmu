@@ -77,13 +77,14 @@ When the workflow finishes, print:
 7. A dirty working tree blocks Ignite unless the changes were created by the current Pulmu run.
 8. Quench must pass before Ship.
 9. High or medium Hone findings must be fixed and re-quenched before Ship, or the run must stop with a clear failure.
-10. When a Full Forge creates a PR, it is a draft by default.
+10. A high-risk Full Forge creates a draft PR by default when repository policy enables it; Full Forge alone does not force draft status.
 11. Do not claim a command/test/review passed unless you actually ran/received it.
 12. `🎨 Pattern` is a conditional design pass inside Shape, never an eighth top-level stage.
 13. Subagents never become top-level `update_plan` items. Parallelize only independent read-only work, and never spawn agents merely to increase agent count.
 14. If `pulmu_smith` is unavailable, stop at Hammer with a recovery step; do not silently fall back to another writer.
+15. Finalize task metadata once after Shape. Review and Ship consume it instead of re-inferring it.
 
-Read `references/stage-contract.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, and `references/review-contract.md` before executing the workflow.
+Read `references/stage-contract.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, `references/review-contract.md`, and `references/delivery-policy.md` before executing the workflow.
 
 ## Forge workflow
 
@@ -91,12 +92,15 @@ Read `references/stage-contract.md`, `references/forge-modes.md`, `references/ag
 
 Print the Ignite stage line.
 
-Run the skill's `scripts/ignite.sh`, passing the user's task as one argument. The script performs deterministic preflight checks and creates/reuses a `pulmu/*` branch.
+Run the skill's `scripts/ignite.sh`, passing the Orchestrator's provisional task type, a short meaningful slug, and the user's task. The script performs deterministic preflight checks, detects the repository base policy, creates/reuses a `pulmu/<mapped-type>/<slug>` branch, and initializes provisional metadata.
 
 Example:
 
 ```bash
-bash <pulmu-skill-dir>/scripts/ignite.sh "$TASK"
+bash <pulmu-skill-dir>/scripts/ignite.sh \
+  --type "<feature|bugfix|refactor|docs|test|chore>" \
+  --slug "<short-kebab-slug>" \
+  "$TASK"
 ```
 
 Capture its reported base branch and Pulmu branch. If Ignite fails, print `✗` with the concrete reason and stop. Do not work around dirty state by stashing, resetting, cleaning, or deleting user work.
@@ -149,6 +153,17 @@ When Pattern is required, read `references/design-pass.md` and run read-only `pu
 
 The Orchestrator records a concise Pattern brief with the implementation brief so Smith and Hone can use it. Do not print a Pattern message when the pass is skipped.
 
+Finalize the canonical task metadata once, after the architecture and conditional Pattern decisions are complete:
+
+```bash
+bash <pulmu-skill-dir>/scripts/metadata.sh finalize \
+  --type "<type>" --forge "<quick|standard|full>" --risk "<low|medium|high>" \
+  --areas "<comma-separated areas>" --pattern "<true|false>" \
+  --security-review "<true|false>" --compatibility-review "<true|false>"
+```
+
+Do not change these fields later or re-infer them in Ship. Pattern automatically propagates frontend and design areas; when Pattern is skipped, do not add design metadata without independent repository evidence.
+
 Print `✓ Forge: <mode>` and a terse plan summary.
 
 ### 4. 🔨 Hammer — Implementing
@@ -191,6 +206,8 @@ If it still fails, print `✗`, summarize the remaining failure, and stop before
 
 On success, print `✓` with the checks that passed.
 
+Quench records PASS evidence tied to the exact verified diff. Any later task-file change invalidates downstream evidence and requires Quench again.
+
 ### 6. 🪨 Hone — Reviewing and refining
 
 Print the Hone stage line.
@@ -224,13 +241,31 @@ Low-severity, non-blocking suggestions may remain in the final summary. High/med
 
 When review is clear, print `✓ Review: PASS`.
 
+Record the consolidated non-blocking result for the exact Quench diff:
+
+```bash
+bash <pulmu-skill-dir>/scripts/metadata.sh hone --result pass
+```
+
 ### 7. 📦 Ship — Finalizing delivery
 
 Print the Ship stage line.
 
 Do not spawn a Ship subagent. The Orchestrator uses deterministic Git and GitHub mechanics only.
 
-Before shipping, inspect `git status` and the final diff. Generate a concise conventional commit title when appropriate.
+Before shipping, inspect `git status` and the final diff. Generate a concise Conventional Commit title from the actual diff, not by copying the prompt. Generate delivery metadata with a user-oriented summary, concrete changes, risk context, and focused reviewer guidance:
+
+```bash
+bash <pulmu-skill-dir>/scripts/metadata.sh delivery \
+  --title "<conventional title>" \
+  --summary "<purpose and user result>" \
+  --change "<concrete change>" \
+  [--change "<concrete change>"] \
+  [--risk-reason "<brief reason>"] \
+  [--review-focus "<specific focus>"]
+```
+
+This captures the expected changed paths. Do not add unrelated paths afterward.
 
 Choose delivery from the user's request and Ignite output:
 
@@ -238,21 +273,30 @@ Choose delivery from the user's request and Ignite output:
 - use `github` when the user explicitly requests a PR; missing GitHub setup then blocks Ship with a concrete recovery step
 - otherwise use Ignite's detected delivery, which preserves PR delivery for ready GitHub repositories and falls back to a local commit elsewhere
 
-For GitHub delivery, also generate a PR body covering purpose, changes, verification, and Pulmu review. Write it to a temporary file outside the repository or under `.git/`.
+For GitHub delivery, the deterministic Ship script renders the canonical PR body from task metadata, delivery metadata, and actual Quench evidence. It discovers existing repository labels before PR creation, applies only available labels by default, and reports missing labels. It never assigns arbitrary reviewers or assignees; CODEOWNERS and configured repository automation remain authoritative.
+
+The legacy `--body-file` option remains accepted as supplemental context. Ship appends it after the canonical Summary, Changes, Pulmu Forge, Verification, Risk, Review Focus, and Pulmu Metadata sections; it never lets caller content replace evidence-grounded sections. Existing PR lookup uses both head and base, and a matching PR is updated to the canonical title and body before labels are reconciled. Label discovery, creation, and application failures are non-blocking: report skipped or unapplied labels and continue to emit a valid PR URL.
 
 Run:
 
 ```bash
 bash <pulmu-skill-dir>/scripts/ship.sh \
-  --title "<commit-and-pr-title>" \
   --delivery "<local|github>" \
-  [--body-file "<path-to-pr-body>"] \
   [--draft]
 ```
 
-Use `--draft` for Full Forge GitHub delivery unless the user explicitly requested a ready-for-review PR and the change is demonstrably safe.
+High-risk Full Forge delivery becomes draft by configured default. Use explicit `--draft` for another evidence-based case; do not make every Full Forge PR draft.
 
-The script always creates the local commit. In GitHub delivery it also pushes and creates the PR. It never force-pushes or merges.
+The script verifies the final-diff evidence, stages only the recorded path manifest, creates one cohesive commit, and normally pushes. It creates or reuses an open PR, applies the bounded label set, and requires a real PR URL. It never force-pushes, auto-merges, or merges.
+
+During Ship, use ordinary subordinate progress messages without adding top-level tasks:
+
+```text
+📦 Ship — Preparing delivery
+  ● Generating commit and PR metadata
+  ● Pushing pulmu/feat/user-search
+  ● Applying available GitHub labels
+```
 
 Capture the returned commit and optional PR URL, then print the final `🔥 Pulmu complete` block. A successful local delivery completes Pulmu without a PR URL.
 

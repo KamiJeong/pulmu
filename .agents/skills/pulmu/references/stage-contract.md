@@ -34,7 +34,7 @@ Custom agents are also subordinate work, never plan items. Report them only thro
 
 Before advancing normally, mark the current item `completed` and the next item `in_progress` in the same plan update. If Quench fails, return the existing Quench item to `pending`, move the existing Hammer item to `in_progress`, have the same Smith fix the failure, complete Hammer, and move Quench back to `in_progress`. If Hone reports blocking findings, reuse the existing items and same Smith for Hammer → Quench → Hone. Never duplicate retry or reviewer items.
 
-Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and pull-request creation for GitHub delivery. A successful run finishes with all seven items `completed`.
+Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings for the exact final diff. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and a real pull-request URL for GitHub delivery. A successful run finishes with all seven items `completed`.
 
 Expose the workflow identity once per run in ordinary progress output:
 
@@ -89,4 +89,4 @@ Hammer → Quench ──fail──→ Hammer → Quench
 Quench → Hone ─finding─→ Hammer → Quench → Hone
 ```
 
-Ship only follows a passing Quench and non-blocking Hone. It always creates a local commit; GitHub push and pull-request creation are optional delivery steps.
+Ship only follows a passing Quench and non-blocking Hone. Task metadata is finalized once after Shape and reused by review and Ship. It always creates a local commit; GitHub push and pull-request creation are optional delivery steps. Git metadata work remains subordinate Ship progress, never additional top-level tasks.

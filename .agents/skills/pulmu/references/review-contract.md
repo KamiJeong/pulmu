@@ -12,6 +12,8 @@ Hone is an independent, read-only review of the actual branch diff and task inte
 
 All reviewers remain read-only. Their tasks are not added to `update_plan`.
 
+Reviewer routing and focus consume the canonical metadata finalized after Shape. Security and compatibility flags are evidence-based routing decisions, not fields that Ship re-infers from the finished diff.
+
 ## Blocking findings
 
 High or medium severity findings block Ship until fixed and re-verified.

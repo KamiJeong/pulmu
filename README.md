@@ -16,7 +16,7 @@ $pulmu "Add user search and include tests"
 🔥 Pulmu — Starting the forge workflow
 
 🔥 Ignite — Preparing the forge
-  ✓ Repository ready · branch pulmu/user-search
+  ✓ Repository ready · branch pulmu/feat/user-search
 🔎 Inspect — Exploring the repository
   ✓ Relevant code, tests, and conventions mapped
 📐 Shape — Forming the plan
@@ -112,7 +112,7 @@ Every mode still goes through **all seven stages**. Only the depth changes.
 
 - **Quick Forge** — small, low-risk, narrowly scoped changes.
 - **Standard Forge** — normal features and bug fixes.
-- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. When delivered through GitHub, it ships as a **draft PR** by default.
+- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. A **high-risk** Full Forge ships as a draft PR by configured default; Full alone does not force draft status.
 
 | Mode | Inspect | Shape | Hammer | Hone |
 |---|---|---|---|---|
@@ -130,6 +130,65 @@ Pulmu uses Luna/medium for narrow repetitive inspection, Terra/medium-or-high fo
 - the project's own runtime/toolchain for Quench (Node/Bun/Python/Rust/Go etc.)
 
 For automatic GitHub delivery, add an `origin` remote and authenticate the optional GitHub CLI (`gh auth status`). Without those, Pulmu completes with a reviewed local commit. Pulmu never force-pushes and never merges a PR.
+
+## Git and GitHub delivery policy
+
+> **Pulmu does not impose Git Flow. It detects and respects the repository's existing delivery strategy.**
+
+Ignite detects an existing base branch from explicit Pulmu config, repository instructions, the current convention, GitHub's default, then existing `main` or `develop`. Work branches use `pulmu/<type>/<short-kebab-slug>` such as `pulmu/feat/user-search`, `pulmu/fix/login-redirect`, or `pulmu/docs/api-guide`. Local and remote name collisions receive a safe numeric suffix. Active legacy Pulmu branches retain their recorded base and fail closed when canonical metadata and `.git` provenance conflict.
+
+Inspect and Shape decide task metadata once:
+
+```yaml
+task:
+  type: feature
+  forge: standard
+  risk: medium
+areas: [frontend, design]
+pattern: true
+security_review: false
+compatibility_review: false
+```
+
+The same record drives review routing and every Ship artifact:
+
+```text
+Pulmu Metadata
+      |
+      +-- Type / Forge / Risk / Area / Pattern
+      |
+      v
+📦 Ship
+      |
+      +-- Branch / Commit / PR Title / PR Body / Labels
+      |
+      v
+GitHub Pull Request
+```
+
+Ship begins only after Quench PASS and non-blocking Hone evidence match the exact final diff. It generates a meaningful Conventional Commit/PR title, stages only expected paths, creates one cohesive commit, normally pushes, and reuses only a PR matching both head and base. Reused PRs receive the canonical title/body; a supplied `--body-file` is supplemental and cannot replace required sections. A GitHub Ship completes only when a real PR URL is returned. It does not merge, force-push, or invent reviewers/assignees.
+
+Generated PRs include Summary, Changes, the seven-stage Pulmu Forge result, actual Verification evidence, Risk, Review Focus, and Pulmu Metadata. Labels are bounded to `pulmu`, one `type:*`, one `forge:*`, one `risk:*`, and one to three relevant `area:*` labels. By default, missing labels are skipped and reported; if discovery, creation, or application of labels fails, the label failure is reported while a valid PR delivery still completes. Pulmu does not rewrite the repository taxonomy.
+
+Optional `.pulmu/config.toml` settings use safe defaults:
+
+```toml
+[git]
+branch_prefix = "pulmu"
+conventional_commits = true
+
+[github]
+create_pr = true
+apply_labels = true
+create_missing_labels = false
+full_forge_draft = true
+
+[policy]
+auto_merge = false
+force_push = false
+```
+
+`git.base_branch` may explicitly select an existing branch. The parser accepts only the documented scalar subset and never sources or evaluates the file. Unsafe `auto_merge = true` or `force_push = true` values are rejected. See [the full delivery contract](./.agents/skills/pulmu/references/delivery-policy.md).
 
 ## Install for your user
 
@@ -198,10 +257,12 @@ pulmu/
 │           ├── scripts/
 │           │   ├── common.sh
 │           │   ├── ignite.sh
+│           │   ├── metadata.sh
 │           │   ├── quench.sh
 │           │   └── ship.sh
 │           └── references/
 │               ├── agent-orchestration.md
+│               ├── delivery-policy.md
 │               ├── design-pass.md
 │               ├── forge-modes.md
 │               ├── stage-contract.md
@@ -241,7 +302,7 @@ Pulmu intentionally keeps the workflow boring where boring is good:
 - existing uncommitted work blocks Ignite
 - Quench must pass before Ship
 - unresolved high/medium review findings block Ship
-- Full Forge produces a draft PR when using GitHub delivery
+- high-risk Full Forge produces a draft PR by configured default
 - no merge
 - no force push
 - no destructive cleanup of unrelated user changes
@@ -254,7 +315,7 @@ Run Pulmu's local integration tests:
 ./tests/test.sh
 ```
 
-The tests do not call a model. They verify shell and TOML syntax, the exact agent inventory and writer boundary, skill/reference consistency, demo and installer packaging, Quench discovery, local-only delivery, and GitHub delivery using a bare Git remote plus a fake `gh` command.
+The tests do not call a model. They verify shell and TOML syntax, the exact agent inventory and writer boundary, skill/reference consistency, metadata propagation, base and branch policy, safe configuration, Quench/Hone delivery gates, local-only delivery, label handling, draft policy, and GitHub delivery using a bare Git remote plus a fake `gh` command.
 
 ## License
 

@@ -40,7 +40,7 @@ Use when any of these are present:
 - large dependency/framework migration
 - high blast radius or uncertain rollback
 
-Inspect adds Risk Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone adds Security, Compatibility, or Design Reviewers only when their triggers apply. Shape must address compatibility, rollout/migration, rollback, and security where relevant. Quench should use all meaningful available checks. GitHub delivery ships as draft by default.
+Inspect adds Risk Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone adds Security, Compatibility, or Design Reviewers only when their triggers apply. Shape must address compatibility, rollout/migration, rollback, and security where relevant. Quench should use all meaningful available checks. A high-risk Full Forge GitHub delivery ships as draft by default when repository policy enables it; Full Forge alone does not force every PR to be a draft.
 
 ## Classification principle
 

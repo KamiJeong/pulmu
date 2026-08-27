@@ -36,6 +36,7 @@ Choose a provisional mode during Ignite so Inspect routing is possible. Inspect 
 - Parallelize only independent read-only work. Do not spawn agents merely to increase count.
 - The Orchestrator gives each agent the original task, base/current branch, relevant prior evidence, and a narrow role-specific question.
 - The Orchestrator consolidates results; raw subagent output does not become extra `update_plan` items.
+- Inspect and Shape determine type, forge, risk, areas, Pattern, and conditional review flags. The Orchestrator finalizes that canonical metadata once after Shape; reviewers and Ship consume it instead of re-inferring it.
 - Architect and Designer return briefs, not edits.
 - Smith receives the original task, repository instructions, Inspect summary, architecture brief, and optional Pattern brief.
 - Reuse the same Smith through Hammer → Quench retry and Hone → Hammer refinements.
@@ -51,4 +52,4 @@ Only authentication, authorization, payment, destructive database migration, dat
 
 ## Delivery boundary
 
-Ship has no subagent. For local delivery, a reviewed local commit completes Ship. For GitHub delivery, Ship completes only after commit, push, and a real pull-request URL. Never merge or force-push.
+Ship has no subagent. The Orchestrator generates delivery metadata from the final diff and deterministic evidence, then the script stages only its expected-path manifest. For local delivery, a reviewed local commit completes Ship. For GitHub delivery, Ship completes only after commit, normal push, and a real pull-request URL; missing labels are non-blocking and reported. Never merge or force-push.
