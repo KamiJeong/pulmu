@@ -16,21 +16,21 @@ Do not reorder these stages in the normal workflow.
 
 ## Native task-progress contract
 
-Call Codex's `update_plan` immediately after Pulmu starts. The plan contains exactly these seven top-level items, in this order:
+Call Codex's `update_plan` immediately after Pulmu starts. The plan contains exactly these seven stable top-level step strings, in this order:
 
-- `🔥 Ignite  — initialize task, validate environment, and understand goal`
-- `🔎 Inspect — inspect repository, conventions, tests, and relevant code`
-- `📐 Shape   — design the implementation approach and determine scope`
-- `🔨 Hammer  — implement the required changes`
-- `🌊 Quench  — run tests, lint, typecheck, build, and other validation`
-- `🪨 Hone    — review the implementation and fix important findings`
-- `📦 Ship    — finalize the selected delivery`
+- `🔥 Ignite — Prepare`
+- `🔎 Inspect — Explore`
+- `📐 Shape — Design`
+- `🔨 Hammer — Implement`
+- `🌊 Quench — Verify`
+- `🪨 Hone — Review`
+- `📦 Ship — Deliver`
 
-Keep exactly one item `in_progress` while work is active, all future stages `pending`, and completed stages `completed`. Update the plan immediately before moving to a new stage. Implementation details belong in ordinary progress messages, not additional top-level items.
+Never shorten, expand, or otherwise rewrite these step strings during a run. Do not put lifecycle words such as `active`, `pending`, or `completed` inside them. Keep exactly one item `in_progress` while work is active, all future stages `pending`, and completed stages `completed`; the native `update_plan` status is the only lifecycle indicator. Update the plan immediately before moving to a new stage. Implementation details belong in ordinary progress messages, not additional top-level items.
 
 `🎨 Pattern` is a conditional design pass inside Shape. Never add it as an eighth plan item. When Pattern runs, show it only as a subordinate progress message while Shape remains `in_progress`.
 
-Custom agents are also subordinate work, never plan items. Report them only through concise ordinary progress lines such as `• Explorer mapping relevant modules`, `• Architect defining module boundaries`, or `• 🎨 Pattern — Designer reviewing responsive behavior`.
+Custom agents are also subordinate work, never plan items. Report them only through concise ordinary progress lines such as `• Explorer mapping relevant modules`, `• Architect defining module boundaries`, or `• 🎨 Pattern — Designer reviewing responsive behavior`. Do not repeat the full plan in normal assistant messages; the native plan UI already owns the checklist.
 
 ## Machine-readable synchronization
 
@@ -57,28 +57,28 @@ The banner is neither a plan item nor an eighth stage. Show it once at run start
 
 ## Terminal contract
 
-At stage start, show the forge concept and one concrete technical activity:
+For the currently active stage, show the stage name and one concrete technical activity outside the plan:
 
 ```text
-🔥 Ignite — Preparing the forge
+🔥 Ignite
   ● Validating repository and delivery access
 
-🔎 Inspect — Exploring the repository
+🔎 Inspect
   ● Mapping relevant code, tests, and conventions
 
-📐 Shape — Forming the plan
+📐 Shape
   ● Defining scope and implementation approach
 
-🔨 Hammer — Forging the change
+🔨 Hammer
   ● Implementing code and tests
 
-🌊 Quench — Verifying the work
+🌊 Quench
   ● Running lint, typecheck, tests, and build
 
-🪨 Hone — Refining the result
+🪨 Hone
   ● Reviewing and resolving important findings
 
-📦 Ship — Preparing delivery
+📦 Ship
   ● Committing and completing the selected delivery
 ```
 
@@ -91,7 +91,7 @@ Stage details use only the small icon vocabulary:
 - `•` subordinate work item
 - `⚠` non-blocking warning
 
-Do not add redundant status words such as `active`, `success`, or `retry` after the icons. Replace the progress line with a one-line completion result when a stage finishes. Avoid turning the terminal into a second dashboard; the native task list is the primary progress UI.
+Do not add redundant status words such as `active`, `success`, or `retry` after the icons. Replace the progress line with a one-line completion result when a stage finishes. Never reproduce all seven plan steps in ordinary progress output. Avoid turning the terminal into a second dashboard; the native task list is the persistent high-level progress UI.
 
 ## Retry paths
 

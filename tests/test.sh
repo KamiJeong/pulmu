@@ -128,13 +128,14 @@ PY
 }
 
 skill_contract_test() {
-  local skill stage design review delivery scripts plan_block actual_plan expected_plan
+  local skill stage design review delivery scripts readme plan_block progress_block actual_plan expected_plan actual_skill_plan actual_readme_plan expected_plain
   skill="$ROOT/.agents/skills/pulmu/SKILL.md"
   stage="$ROOT/.agents/skills/pulmu/references/stage-contract.md"
   design="$ROOT/.agents/skills/pulmu/references/design-pass.md"
   review="$ROOT/.agents/skills/pulmu/references/review-contract.md"
   delivery="$ROOT/.agents/skills/pulmu/references/delivery-policy.md"
   scripts="$ROOT/.agents/skills/pulmu/scripts"
+  readme="$ROOT/README.md"
 
   grep -Fq "Codex's \`update_plan\` tool" "$skill" || return 1
   [[ "$(grep -Fc '🔥 Pulmu — Starting the forge workflow' "$skill")" -eq 1 ]] || return 1
@@ -149,15 +150,34 @@ skill_contract_test() {
   plan_block="$(sed -n '/## Native task-progress contract/,/## Terminal contract/p' "$stage")"
   actual_plan="$(grep '^- `.*—' <<<"$plan_block")"
   expected_plan="$(printf '%s\n' \
-    '- `🔥 Ignite  — initialize task, validate environment, and understand goal`' \
-    '- `🔎 Inspect — inspect repository, conventions, tests, and relevant code`' \
-    '- `📐 Shape   — design the implementation approach and determine scope`' \
-    '- `🔨 Hammer  — implement the required changes`' \
-    '- `🌊 Quench  — run tests, lint, typecheck, build, and other validation`' \
-    '- `🪨 Hone    — review the implementation and fix important findings`' \
-    '- `📦 Ship    — finalize the selected delivery`')"
+    '- `🔥 Ignite — Prepare`' \
+    '- `🔎 Inspect — Explore`' \
+    '- `📐 Shape — Design`' \
+    '- `🔨 Hammer — Implement`' \
+    '- `🌊 Quench — Verify`' \
+    '- `🪨 Hone — Review`' \
+    '- `📦 Ship — Deliver`')"
+  expected_plain="$(printf '%s\n' \
+    '🔥 Ignite — Prepare' \
+    '🔎 Inspect — Explore' \
+    '📐 Shape — Design' \
+    '🔨 Hammer — Implement' \
+    '🌊 Quench — Verify' \
+    '🪨 Hone — Review' \
+    '📦 Ship — Deliver')"
   [[ "$actual_plan" == "$expected_plan" ]] || return 1
+  actual_skill_plan="$(sed -n '/Immediately after Pulmu starts, call/,/Keep these strings unchanged/p' "$skill" | grep -E '^(🔥|🔎|📐|🔨|🌊|🪨|📦)')"
+  [[ "$actual_skill_plan" == "$expected_plain" ]] || return 1
+  actual_readme_plan="$(sed -n '/The step text is stable/,/The native plan status/p' "$readme" | grep -E '^(🔥|🔎|📐|🔨|🌊|🪨|📦)')"
+  [[ "$actual_readme_plan" == "$expected_plain" ]] || return 1
+  ! grep -Eqi '^- `.*\b(active|pending|completed)\b.*`$' <<<"$actual_plan" || return 1
   ! grep -q '^- `.*Pattern' <<<"$plan_block" || return 1
+  grep -Fq 'Do not repeat the full plan in normal assistant messages' "$skill" || return 1
+  grep -Fq 'Do not repeat the full plan in normal assistant messages' "$stage" || return 1
+
+  progress_block="$(sed -n '/## Terminal contract/,/## Retry paths/p' "$stage")"
+  [[ "$(grep -Ec '^(🔥 Ignite|🔎 Inspect|📐 Shape|🔨 Hammer|🌊 Quench|🪨 Hone|📦 Ship)$' <<<"$progress_block")" -eq 7 ]] || return 1
+  ! grep -Eq '^(🔥 Ignite|🔎 Inspect|📐 Shape|🔨 Hammer|🌊 Quench|🪨 Hone|📦 Ship) —' <<<"$progress_block" || return 1
 
   grep -Fq 'Decide from Inspect evidence rather than keywords alone.' "$design" || return 1
   grep -Fq 'Do not run this design review for tasks where Pattern was skipped.' "$review" || return 1
