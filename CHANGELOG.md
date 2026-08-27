@@ -9,6 +9,7 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 - Linux and macOS GitHub Actions coverage for the deterministic integration suite.
 - GitHub setup, delivery-selection, fork limitation, and interrupted-delivery recovery guidance.
 - Contribution, security-reporting, pull-request, and issue templates.
+- Landing-page install and repository paths, project trust signals, social metadata, mobile navigation, and post-preview next steps.
 
 ### Fixed
 

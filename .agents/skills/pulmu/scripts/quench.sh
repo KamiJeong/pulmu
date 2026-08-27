@@ -31,6 +31,12 @@ json_has_script() {
   fi
 }
 
+has_python_tests() {
+  [[ -f pyproject.toml || -f pytest.ini ]] && return 0
+  [[ -d tests ]] || return 1
+  find tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .
+}
+
 checks=0
 
 if [[ -f package.json ]]; then
@@ -51,7 +57,12 @@ if [[ -f package.json ]]; then
   done
 fi
 
-if [[ -f pyproject.toml || -f pytest.ini || -d tests ]]; then
+if [[ -f tests/test.sh ]]; then
+  checks=$((checks+1))
+  run_check "tests/test.sh" bash ./tests/test.sh
+fi
+
+if has_python_tests; then
   if command -v pytest >/dev/null 2>&1; then
     checks=$((checks+1))
     run_check "pytest" pytest -q
