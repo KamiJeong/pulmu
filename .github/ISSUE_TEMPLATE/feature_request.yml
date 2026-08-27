@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a focused improvement to Pulmu
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow problem should Pulmu solve, and who encounters it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the desired behavior without requiring a specific implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or different approaches have you tried?
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Workflow contract impact
+      description: Note any effect on the single-command UX, seven stages, one-writer boundary, delivery, or compatibility.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request keeps `$pulmu` as the single public workflow command.
+          required: true

@@ -1,0 +1,61 @@
+name: Bug report
+description: Report reproducible incorrect Pulmu behavior
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. For security vulnerabilities, stop here and use the private Security Advisory link instead.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and which Pulmu stage was involved?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest task and repository steps that reproduce the problem.
+      placeholder: |
+        1. Run ...
+        2. Invoke $pulmu "..."
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, shell version, Codex CLI version, and Pulmu version or commit.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Paste only the minimal relevant output after removing tokens, paths, and private repository data.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive data check
+      options:
+        - label: I removed credentials, tokens, secrets, and unrelated private data.
+          required: true

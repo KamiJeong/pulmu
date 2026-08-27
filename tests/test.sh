@@ -15,6 +15,31 @@ syntax_test() {
   while IFS= read -r -d '' f; do bash -n "$f" || return 1; done < <(find "$ROOT" -name '*.sh' -print0)
 }
 
+github_repository_contract_test() {
+  local workflow="$ROOT/.github/workflows/ci.yml" required
+  [[ -f "$workflow" ]] || return 1
+  grep -Fq 'actions/checkout@v7' "$workflow" || return 1
+  grep -Fq 'actions/setup-node@v7' "$workflow" || return 1
+  grep -Fq 'actions/setup-python@v7' "$workflow" || return 1
+  grep -Fq -- '- ubuntu-latest' "$workflow" || return 1
+  grep -Fq -- '- macos-14' "$workflow" || return 1
+  grep -Fq 'run: /bin/bash ./tests/test.sh' "$workflow" || return 1
+  for required in \
+    CONTRIBUTING.md \
+    SECURITY.md \
+    CHANGELOG.md \
+    .github/PULL_REQUEST_TEMPLATE.md \
+    .github/ISSUE_TEMPLATE/bug_report.yml \
+    .github/ISSUE_TEMPLATE/feature_request.yml \
+    .github/ISSUE_TEMPLATE/config.yml; do
+    [[ -f "$ROOT/$required" ]] || return 1
+  done
+  grep -Fq 'gh auth status' "$ROOT/README.md" || return 1
+  grep -Fq 'PULMU_DELIVERY=github' "$ROOT/README.md" || return 1
+  grep -Fq 'Fork and upstream limitation' "$ROOT/README.md" || return 1
+  grep -Fq 'security/advisories/new' "$ROOT/SECURITY.md" || return 1
+}
+
 example_test() {
   (cd "$ROOT/examples/task-store" && npm test >/dev/null)
 }
@@ -445,7 +470,9 @@ if [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
 fi
 if [[ "${1:-}" == "label" && "${2:-}" == "list" ]]; then
   [[ "${GH_LABEL_FAIL:-0}" == 1 ]] && exit 3
-  if [[ "${GH_PATTERN_LABELS:-0}" == 1 ]]; then
+  if [[ "${GH_EMPTY_LABELS:-0}" == 1 ]]; then
+    :
+  elif [[ "${GH_PATTERN_LABELS:-0}" == 1 ]]; then
     printf '%s\n' pulmu 'type: feature' 'forge: standard' 'risk: low' 'area: frontend' 'area: design'
   else
     printf '%s\n' pulmu 'type: feature' 'forge: full' 'risk: medium' 'area: infra'
@@ -541,6 +568,13 @@ PY
     grep -q 'PULMU_LABELS_SKIPPED=pulmu,type: feature,forge: full,risk: medium,area: infra,area: testing' <<<"$label_failure_out" || exit 1
     grep -q 'PULMU_PR_URL=https://github.com/example/pulmu-demo/pull/1' <<<"$label_failure_out" || exit 1
     unset GH_LABEL_FAIL
+    label_edit_count="$(grep -Fc -- '--add-label ' "$GH_LOG" || true)"
+    export GH_EMPTY_LABELS=1
+    empty_label_out="$(PATH="$fakebin:$PATH" ship_for_run --delivery github)"
+    grep -q 'PULMU_LABELS_APPLIED=0' <<<"$empty_label_out" || exit 1
+    grep -q 'PULMU_LABELS_SKIPPED=pulmu,type: feature,forge: full,risk: medium,area: infra,area: testing' <<<"$empty_label_out" || exit 1
+    [[ "$(grep -Fc -- '--add-label ' "$GH_LOG" || true)" == "$label_edit_count" ]] || exit 1
+    unset GH_EMPTY_LABELS
     export GH_PR_MODE=invalid
     if PATH="$fakebin:$PATH" ship_for_run --delivery github >/dev/null 2>&1; then exit 1; fi
     [[ "$(git rev-list --count main..HEAD)" -eq 1 && "$(grep -c '^pr create ' "$GH_LOG")" -eq 1 ]] || exit 1
@@ -624,7 +658,8 @@ run_context_test() {
       'Add persistent state token=should-never-persist')"
     run_id="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$ignite_out")"
     [[ "$run_id" =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$ ]] || exit 1
-    [[ -f .git/pulmu/run.json && "$(stat -c '%a' .git/pulmu/run.json)" == 600 ]] || exit 1
+    run_mode="$(python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' .git/pulmu/run.json)"
+    [[ -f .git/pulmu/run.json && "$run_mode" == 600 ]] || exit 1
     python3 - .git/pulmu/run.json "$run_id" <<'PY'
 import json, pathlib, sys
 state = json.loads(pathlib.Path(sys.argv[1]).read_text())
@@ -930,6 +965,7 @@ run_context_worktree_test() {
 }
 
 run_test 'shell scripts parse' syntax_test
+run_test 'GitHub CI covers Linux and macOS Bash' github_repository_contract_test
 run_test 'demo baseline tests pass' example_test
 run_test 'Quench discovers and runs npm test' quench_test
 run_test 'installer lays out skill and agents' installer_test

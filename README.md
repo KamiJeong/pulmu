@@ -24,9 +24,11 @@ Requirements:
 - the project runtime needed by its own checks, such as Node, Bun, Python, Rust, or Go
 - optional authenticated GitHub CLI for pull-request delivery
 
-Install Pulmu for the current user:
+Clone Pulmu and install it for the current user:
 
 ```bash
+git clone https://github.com/KamiJeong/pulmu.git
+cd pulmu
 ./install.sh
 ```
 
@@ -210,6 +212,63 @@ force_push = false
 
 `git.base_branch` may select an existing base explicitly. The parser accepts only the documented scalar subset, treats configuration as data, and rejects `auto_merge = true` or `force_push = true`. See the [delivery policy](./.agents/skills/pulmu/references/delivery-policy.md).
 
+### GitHub setup checklist
+
+Pulmu selects GitHub delivery only when all of these checks succeed:
+
+- `github.create_pr` is enabled (the default)
+- an `origin` remote exists
+- GitHub CLI (`gh`) is installed and authenticated
+- `gh repo view` can resolve the current repository
+
+Check the repository before starting a GitHub-delivery run:
+
+```bash
+gh --version
+gh auth login
+gh auth status
+git remote -v
+gh repo view --json nameWithOwner,defaultBranchRef
+```
+
+The authenticated account needs permission to push the Pulmu work branch and create or update a pull request in the `origin` repository. Reading labels is enough for the default label behavior; creating missing labels additionally requires label-management permission and must be enabled explicitly.
+
+### How delivery is selected
+
+When the checklist is ready, Ignite selects `PULMU_DELIVERY=github`. If GitHub was not explicitly required and any readiness check fails, Pulmu selects `PULMU_DELIVERY=local` and still finishes with a reviewed local commit. If the task explicitly requires a pull request, missing GitHub setup blocks the run with a recovery message instead of silently falling back. Setting `github.create_pr = false` always selects local delivery.
+
+### Fork and upstream limitation
+
+GitHub delivery currently pushes to `origin` and opens or reuses the pull request in that same repository. A split setup where `origin` is a personal fork and `upstream` is the canonical repository is not yet automated as a cross-repository pull request. In that setup, either make the intended target repository the writable `origin`, or use local delivery and manually push the branch and open the fork-to-upstream pull request.
+
+### Pull requests and labels
+
+Pulmu reuses an existing pull request only when its head and base match the current delivery, then reconciles its title and body with the final reviewed diff. A pull request with a different base is not reused.
+
+Labels use exact repository matches such as `pulmu`, `type: feature`, `forge: standard`, `risk: low`, and `area: frontend`. Missing labels are reported without failing a valid pull request. Pulmu does not create missing labels unless `github.create_missing_labels = true` is explicitly configured.
+
+### Recovering an interrupted GitHub delivery
+
+Ship creates the reviewed commit before it pushes or creates the pull request. If GitHub delivery stops partway through, inspect both the persisted run and Git state:
+
+```bash
+bash .agents/skills/pulmu/scripts/pulmu-status.sh
+git status --short --branch
+git log -1 --oneline
+gh pr list --head "$(git branch --show-current)"
+```
+
+Repair authentication or remote access without deleting Pulmu state:
+
+```bash
+gh auth login
+gh auth status
+git remote -v
+gh repo view
+```
+
+If the original Codex session is still active, ask it to retry Ship after the external problem is fixed. Ship records the delivered commit in Git metadata and resumes a matching clean delivery without creating a duplicate commit. If that session has ended, confirm that `pulmu-status.sh` reports `failed` or `interrupted` and that the worktree is clean before rerunning the same `$pulmu` task. Do not manually delete `.git/pulmu` or `.git/pulmu-*` recovery metadata.
+
 ## Installation and demo
 
 `./install.sh` installs the skill and agent definitions under:
@@ -220,6 +279,19 @@ force_push = false
 ```
 
 Codex discovers repository skills under `.agents/skills` and user skills under `~/.agents/skills`. The skill list displays **Pulmu Workflows**; invocation remains `$pulmu`.
+
+Update an existing clone and reinstall the user copy:
+
+```bash
+git pull --ff-only
+./install.sh
+```
+
+Remove the installed user copy without deleting the repository clone:
+
+```bash
+./uninstall.sh
+```
 
 Create a disposable embedded demo:
 
@@ -257,6 +329,10 @@ An authenticated GitHub CLI can create a private demo repository as well:
 
 ```text
 pulmu/
+├── .github/
+│   ├── workflows/ci.yml
+│   ├── ISSUE_TEMPLATE/
+│   └── PULL_REQUEST_TEMPLATE.md
 ├── .agents/skills/pulmu/
 │   ├── SKILL.md
 │   ├── VERSION
@@ -280,6 +356,9 @@ pulmu/
 ├── examples/task-store/
 ├── scripts/create-demo-repo.sh
 ├── tests/test.sh
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+├── SECURITY.md
 ├── install.sh
 └── uninstall.sh
 ```
@@ -293,6 +372,8 @@ Run the deterministic integration suite after changing Pulmu scripts or contract
 ```
 
 The suite does not call a model. It verifies shell and TOML syntax, installation and demo packaging, the agent inventory and one-writer boundary, the exact seven-step progress contract, Forge routing, Pattern behavior, metadata and branch policy, Quench/Hone evidence gates, local and GitHub delivery, Run Context lifecycle and retries, stale and malformed state, redaction, concurrency, history, legacy migration, and linked worktrees.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the change and pull-request checklist, [SECURITY.md](./SECURITY.md) for private vulnerability reporting, and [CHANGELOG.md](./CHANGELOG.md) for notable project changes.
 
 ## License
 

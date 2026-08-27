@@ -198,13 +198,15 @@ fi
 PR_NUMBER="${PR_URL##*/}"
 
 APPLIED=0
-for label in "${AVAILABLE_LABELS[@]}"; do
-  if gh pr edit "$PR_URL" --add-label "$label" >/dev/null; then
-    APPLIED=$((APPLIED + 1))
-  else
-    UNAPPLIED_LABELS+=("$label")
-  fi
-done
+if [[ "${#AVAILABLE_LABELS[@]}" -gt 0 ]]; then
+  for label in "${AVAILABLE_LABELS[@]}"; do
+    if gh pr edit "$PR_URL" --add-label "$label" >/dev/null; then
+      APPLIED=$((APPLIED + 1))
+    else
+      UNAPPLIED_LABELS+=("$label")
+    fi
+  done
+fi
 printf 'PULMU_LABELS_APPLIED=%s\n' "$APPLIED"
 printf 'PULMU_LABEL_DISCOVERY=%s\n' "$LABEL_DISCOVERY"
 if [[ "${#MISSING_LABELS[@]}" -gt 0 ]]; then printf 'PULMU_LABELS_SKIPPED=%s\n' "$(IFS=,; printf '%s' "${MISSING_LABELS[*]}")"; fi
