@@ -40,6 +40,55 @@ github_repository_contract_test() {
   grep -Fq 'security/advisories/new' "$ROOT/SECURITY.md" || return 1
 }
 
+landing_page_contract_test() {
+  local page="$ROOT/index.html" version install_command
+  version="$(tr -d '[:space:]' < "$ROOT/.agents/skills/pulmu/VERSION")"
+  install_command='git clone https://github.com/KamiJeong/pulmu.git &amp;&amp; cd pulmu &amp;&amp; ./install.sh'
+
+  grep -Fq '<link rel="canonical" href="https://kamijeong.github.io/pulmu/">' "$page" || return 1
+  grep -Fq '<link rel="icon" href="data:image/svg+xml,' "$page" || return 1
+  grep -Fq '<meta name="theme-color" content="#151513">' "$page" || return 1
+  for metadata in \
+    'property="og:title"' \
+    'property="og:description"' \
+    'property="og:type" content="website"' \
+    'property="og:url" content="https://kamijeong.github.io/pulmu/"' \
+    'property="og:site_name" content="Pulmu"' \
+    'property="og:image" content="https://kamijeong.github.io/pulmu/assets/pulmu-joseon-forge.png"' \
+    'property="og:image:alt"' \
+    'name="twitter:card" content="summary_large_image"' \
+    'name="twitter:image" content="https://kamijeong.github.io/pulmu/assets/pulmu-joseon-forge.png"'; do
+    grep -Fq "$metadata" "$page" || return 1
+  done
+
+  grep -Fq 'class="nav-section-link" href="#how-it-works"' "$page" || return 1
+  grep -Fq 'class="nav-cta nav-repository" href="https://github.com/KamiJeong/pulmu"' "$page" || return 1
+  grep -Fq 'class="nav-cta nav-install" href="#install"' "$page" || return 1
+  grep -Fq '.nav-section-link {' "$page" || return 1
+
+  grep -Fq 'id="install" aria-labelledby="install-title"' "$page" || return 1
+  grep -Fq "$install_command" "$page" || return 1
+  [[ "$(grep -Fc 'data-copy-target=' "$page")" -eq 2 ]] || return 1
+  grep -Fq 'data-copy-target="#hero-command" data-copy-status="#copy-status"' "$page" || return 1
+  grep -Fq 'data-copy-target="#install-command" data-copy-status="#install-copy-status"' "$page" || return 1
+  grep -Fq 'id="copy-status" role="status" aria-live="polite"' "$page" || return 1
+  grep -Fq 'id="install-copy-status" role="status" aria-live="polite"' "$page" || return 1
+
+  grep -Fq "href=\"https://github.com/KamiJeong/pulmu/releases/tag/v${version}\">v${version}</a>" "$page" || return 1
+  grep -Fq 'CI passing · Linux + macOS' "$page" || return 1
+  grep -Fq '>MIT License</a>' "$page" || return 1
+  grep -Fq 'class="result-action result-action-primary" href="#install">Install Pulmu</a>' "$page" || return 1
+  grep -Fq 'href="https://github.com/KamiJeong/pulmu#quick-start">Read the setup guide</a>' "$page" || return 1
+  grep -Fq 'class="footer-nav" aria-label="Repository"' "$page" || return 1
+  for url in \
+    'https://github.com/KamiJeong/pulmu"' \
+    'https://github.com/KamiJeong/pulmu#readme"' \
+    'https://github.com/KamiJeong/pulmu/releases"' \
+    'https://github.com/KamiJeong/pulmu/security"'; do
+    grep -Fq "href=\"$url" "$page" || return 1
+  done
+}
+
 example_test() {
   (cd "$ROOT/examples/task-store" && npm test >/dev/null)
 }
@@ -50,6 +99,69 @@ quench_test() {
   cp -R "$ROOT/examples/task-store/." "$d/"
   (cd "$d" && git init -b main >/dev/null && git config user.name Test && git config user.email test@example.invalid && git add . && git commit -m init >/dev/null && bash "$ROOT/.agents/skills/pulmu/scripts/quench.sh" >/dev/null)
   rm -rf "$d"
+}
+
+quench_discovery_test() {
+  local tmp shell_repo python_repo combined_repo fakebin scripts status
+  tmp="$(mktemp -d)"
+  shell_repo="$tmp/shell-repo"
+  python_repo="$tmp/python-repo"
+  combined_repo="$tmp/combined-repo"
+  fakebin="$tmp/bin"
+  scripts="$ROOT/.agents/skills/pulmu/scripts"
+  status=0
+  mkdir -p "$shell_repo/tests" "$python_repo/tests" "$combined_repo/tests" "$fakebin"
+  printf '#!/usr/bin/env bash\nprintf "shell test ran\\n" > "$QUENCH_SHELL_MARKER"\n' > "$shell_repo/tests/test.sh"
+  chmod +x "$shell_repo/tests/test.sh"
+  printf '#!/usr/bin/env bash\nprintf "pytest ran\\n" > "$QUENCH_PYTEST_MARKER"\n' > "$fakebin/pytest"
+  chmod +x "$fakebin/pytest"
+  printf 'def test_example():\n    assert True\n' > "$python_repo/tests/test_example.py"
+  printf '#!/usr/bin/env bash\nprintf "combined shell test ran\\n" > "$QUENCH_SHELL_MARKER"\n' > "$combined_repo/tests/test.sh"
+  chmod +x "$combined_repo/tests/test.sh"
+  printf 'def test_combined():\n    assert True\n' > "$combined_repo/tests/test_combined.py"
+
+  (
+    cd "$shell_repo"
+    git init -b main >/dev/null
+    PATH="$fakebin:$PATH" \
+      QUENCH_SHELL_MARKER="$tmp/shell-ran" \
+      QUENCH_PYTEST_MARKER="$tmp/pytest-ran-for-shell" \
+      bash "$scripts/quench.sh" > "$tmp/shell-output"
+    [[ -f "$tmp/shell-ran" && ! -e "$tmp/pytest-ran-for-shell" ]] || exit 1
+    grep -Fq '• tests/test.sh' "$tmp/shell-output" || exit 1
+    grep -Fq 'PULMU_QUENCH_CHECKS=1' "$tmp/shell-output" || exit 1
+  ) || status=$?
+
+  if [[ "$status" -eq 0 ]]; then
+    (
+      cd "$python_repo"
+      git init -b main >/dev/null
+      PATH="$fakebin:$PATH" \
+        QUENCH_PYTEST_MARKER="$tmp/pytest-ran-for-python" \
+        bash "$scripts/quench.sh" > "$tmp/python-output"
+      [[ -f "$tmp/pytest-ran-for-python" ]] || exit 1
+      grep -Fq '• pytest' "$tmp/python-output" || exit 1
+      grep -Fq 'PULMU_QUENCH_CHECKS=1' "$tmp/python-output" || exit 1
+    ) || status=$?
+  fi
+
+  if [[ "$status" -eq 0 ]]; then
+    (
+      cd "$combined_repo"
+      git init -b main >/dev/null
+      PATH="$fakebin:$PATH" \
+        QUENCH_SHELL_MARKER="$tmp/shell-ran-for-combined" \
+        QUENCH_PYTEST_MARKER="$tmp/pytest-ran-for-combined" \
+        bash "$scripts/quench.sh" > "$tmp/combined-output"
+      [[ -f "$tmp/shell-ran-for-combined" && -f "$tmp/pytest-ran-for-combined" ]] || exit 1
+      grep -Fq '• tests/test.sh' "$tmp/combined-output" || exit 1
+      grep -Fq '• pytest' "$tmp/combined-output" || exit 1
+      grep -Fq 'PULMU_QUENCH_CHECKS=2' "$tmp/combined-output" || exit 1
+    ) || status=$?
+  fi
+
+  rm -rf "$tmp"
+  return "$status"
 }
 
 installer_test() {
@@ -966,8 +1078,10 @@ run_context_worktree_test() {
 
 run_test 'shell scripts parse' syntax_test
 run_test 'GitHub CI covers Linux and macOS Bash' github_repository_contract_test
+run_test 'landing page preserves adoption and repository contracts' landing_page_contract_test
 run_test 'demo baseline tests pass' example_test
 run_test 'Quench discovers and runs npm test' quench_test
+run_test 'Quench distinguishes shell and Python test discovery' quench_discovery_test
 run_test 'installer lays out skill and agents' installer_test
 run_test 'uninstaller removes skill and all Pulmu agents' uninstaller_test
 run_test 'demo repository packages all Pulmu agents' demo_packaging_test
