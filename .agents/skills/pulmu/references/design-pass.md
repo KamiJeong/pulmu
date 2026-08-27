@@ -1,6 +1,6 @@
 # Pattern design-pass contract
 
-`🎨 Pattern — Designing the experience` is a conditional design pass inside `📐 Shape`. It is not a top-level forge stage, never appears in the seven-item `update_plan` list, and ordinarily does not edit source code. Hammer implements the decisions Pattern records.
+`🎨 Pattern — Designing the experience` is a conditional design pass inside `📐 Shape`. It is not a top-level forge stage, never appears in the seven-item `update_plan` list, and does not edit source code. Read-only `pulmu_designer` produces the brief, the Orchestrator consolidates it, and Smith implements it during Hammer.
 
 ## When Pattern runs
 
@@ -43,7 +43,7 @@ Prefer consistency with the existing product. Unless requested or already establ
 
 ## Pattern brief
 
-Before Hammer, record only the decisions needed for implementation and review:
+Before Hammer, Designer returns and the Orchestrator records only the decisions needed for Smith implementation and Design Reviewer verification:
 
 - reused design-language primitives
 - hierarchy and primary/secondary actions

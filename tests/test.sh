@@ -28,10 +28,11 @@ quench_test() {
 }
 
 installer_test() {
-  local h status
+  local h status agent_count
   h="$(mktemp -d)"
   HOME="$h" bash "$ROOT/install.sh" >/dev/null
-  if [[ -f "$h/.agents/skills/pulmu/SKILL.md" && -f "$h/.agents/skills/pulmu/agents/openai.yaml" && -f "$h/.codex/agents/pulmu-explorer.toml" && -x "$h/.agents/skills/pulmu/scripts/ship.sh" ]] &&
+  agent_count="$(find "$h/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
+  if [[ -f "$h/.agents/skills/pulmu/SKILL.md" && -f "$h/.agents/skills/pulmu/agents/openai.yaml" && -f "$h/.codex/agents/pulmu-smith.toml" && -x "$h/.agents/skills/pulmu/scripts/ship.sh" && "$agent_count" -eq 12 ]] &&
     grep -q 'display_name: "Pulmu Workflows"' "$h/.agents/skills/pulmu/agents/openai.yaml"; then
     status=0
   else
@@ -39,6 +40,91 @@ installer_test() {
   fi
   rm -rf "$h"
   return "$status"
+}
+
+uninstaller_test() {
+  local h status
+  h="$(mktemp -d)"
+  HOME="$h" bash "$ROOT/install.sh" >/dev/null
+  HOME="$h" bash "$ROOT/uninstall.sh" >/dev/null
+  if [[ ! -e "$h/.agents/skills/pulmu" ]] &&
+    ! find "$h/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | grep -q .; then
+    status=0
+  else
+    status=1
+  fi
+  rm -rf "$h"
+  return "$status"
+}
+
+demo_packaging_test() {
+  local tmp target status agent_count
+  tmp="$(mktemp -d)"
+  target="$tmp/demo"
+  bash "$ROOT/scripts/create-demo-repo.sh" "$target" >/dev/null
+  agent_count="$(find "$target/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
+  if [[ -f "$target/.agents/skills/pulmu/SKILL.md" && -f "$target/.codex/config.toml" && -f "$target/.codex/agents/pulmu-smith.toml" && "$agent_count" -eq 12 ]]; then
+    status=0
+  else
+    status=1
+  fi
+  rm -rf "$tmp"
+  return "$status"
+}
+
+agent_contract_test() {
+  python3 - "$ROOT" <<'PY'
+import pathlib
+import sys
+import tomllib
+
+root = pathlib.Path(sys.argv[1])
+agent_dir = root / ".codex" / "agents"
+expected = {
+    "pulmu-explorer.toml": ("pulmu_explorer", "gpt-5.6-terra", "medium", "read-only"),
+    "pulmu-test-scout.toml": ("pulmu_test_scout", "gpt-5.6-luna", "medium", "read-only"),
+    "pulmu-risk-scout.toml": ("pulmu_risk_scout", "gpt-5.6-terra", "high", "read-only"),
+    "pulmu-architect.toml": ("pulmu_architect", "gpt-5.6-sol", "high", "read-only"),
+    "pulmu-designer.toml": ("pulmu_designer", "gpt-5.6-sol", "high", "read-only"),
+    "pulmu-smith.toml": ("pulmu_smith", "gpt-5.6-sol", "high", "workspace-write"),
+    "pulmu-failure-analyst.toml": ("pulmu_failure_analyst", "gpt-5.6-terra", "high", "read-only"),
+    "pulmu-reviewer.toml": ("pulmu_reviewer", "gpt-5.6-terra", "high", "read-only"),
+    "pulmu-test-reviewer.toml": ("pulmu_test_reviewer", "gpt-5.6-terra", "medium", "read-only"),
+    "pulmu-security-reviewer.toml": ("pulmu_security_reviewer", "gpt-5.6-sol", "high", "read-only"),
+    "pulmu-compat-reviewer.toml": ("pulmu_compat_reviewer", "gpt-5.6-terra", "high", "read-only"),
+    "pulmu-design-reviewer.toml": ("pulmu_design_reviewer", "gpt-5.6-sol", "medium", "read-only"),
+}
+
+actual_files = {path.name for path in agent_dir.glob("pulmu-*.toml")}
+assert actual_files == set(expected), (actual_files, set(expected))
+
+agents = {}
+required = {"name", "description", "model", "model_reasoning_effort", "sandbox_mode", "developer_instructions"}
+for filename, contract in expected.items():
+    data = tomllib.loads((agent_dir / filename).read_text())
+    assert required <= data.keys(), (filename, required - data.keys())
+    actual = (data["name"], data["model"], data["model_reasoning_effort"], data["sandbox_mode"])
+    assert actual == contract, (filename, actual, contract)
+    agents[data["name"]] = data
+    if data["name"] != "pulmu_smith":
+        assert "Do not modify files" in data["developer_instructions"], filename
+
+writers = [name for name, data in agents.items() if data["sandbox_mode"] == "workspace-write"]
+assert writers == ["pulmu_smith"], writers
+smith_rules = agents["pulmu_smith"]["developer_instructions"].lower()
+for forbidden in ("git commit", "push", "pull request", "force-push"):
+    assert forbidden in smith_rules, forbidden
+
+contract_text = "\n".join([
+    (root / ".agents" / "skills" / "pulmu" / "SKILL.md").read_text(),
+    (root / ".agents" / "skills" / "pulmu" / "references" / "agent-orchestration.md").read_text(),
+])
+for agent_name in agents:
+    assert f"`{agent_name}`" in contract_text, agent_name
+
+config = tomllib.loads((root / ".codex" / "config.toml").read_text())
+assert config["agents"]["max_concurrent_threads_per_session"] >= 6
+PY
 }
 
 skill_contract_test() {
@@ -53,7 +139,10 @@ skill_contract_test() {
   grep -Fq 'The banner is neither a plan item nor an eighth stage.' "$stage" || return 1
   grep -Fq '`references/design-pass.md`' "$skill" || return 1
   grep -Fq 'never an eighth top-level stage' "$skill" || return 1
-  grep -Fq 'Pattern determines the intended experience; it does not implement or edit source code.' "$skill" || return 1
+  grep -Fq 'Pattern determines the intended experience; neither the Designer nor the Orchestrator implements or edits task files.' "$skill" || return 1
+  grep -Fq 'it does not edit application/source/test files.' "$skill" || return 1
+  grep -Fq 'Quick: `pulmu_reviewer`, plus `pulmu_design_reviewer` when Pattern ran' "$skill" || return 1
+  grep -Fq 'Standard: `pulmu_reviewer` and `pulmu_test_reviewer`, plus `pulmu_design_reviewer` when Pattern ran' "$skill" || return 1
 
   plan_block="$(sed -n '/## Native task-progress contract/,/## Terminal contract/p' "$stage")"
   actual_plan="$(grep '^- `.*—' <<<"$plan_block")"
@@ -149,6 +238,9 @@ run_test 'shell scripts parse' syntax_test
 run_test 'demo baseline tests pass' example_test
 run_test 'Quench discovers and runs npm test' quench_test
 run_test 'installer lays out skill and agents' installer_test
+run_test 'uninstaller removes skill and all Pulmu agents' uninstaller_test
+run_test 'demo repository packages all Pulmu agents' demo_packaging_test
+run_test 'agent TOMLs preserve routing and single-writer contracts' agent_contract_test
 run_test 'skill preserves seven stages with conditional Pattern' skill_contract_test
 run_test 'local Git repository completes without GitHub' local_delivery_test
 run_test 'GitHub delivery pushes and creates a PR' github_delivery_test

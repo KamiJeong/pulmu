@@ -9,21 +9,32 @@ Pulmu turns one Codex CLI task prompt into a reviewed local commit, with optiona
 `$pulmu` is the command that starts the entire smithy.
 Ignite / Inspect / Shape / Hammer / Quench / Hone / Ship are the forge stages inside it.
 
-## v0.1.0 vertical slice
+## Multi-agent orchestration
 
-- `$pulmu <task>` skill entrypoint
-- visible emoji stage presentation in Codex CLI output
-- Quick / Standard / Full Forge classification
-- deterministic Ignite preflight + branch creation
-- read-only Explorer subagent
-- main Codex planning and implementation
-- deterministic Quench verification
-- fix/retry loop
-- read-only Reviewer subagent
-- review/fix/reverify loop
-- deterministic Ship commit with optional GitHub push/PR
-- Full Forge draft PR when using GitHub delivery
-- zero-install demo repository generator
+```text
+Orchestrator
+  ↓
+Scouts
+  ↓
+Architect / Designer
+  ↓
+Smith
+  ↓
+Quench
+  ↓
+Independent Reviewers
+  ↓
+Ship
+```
+
+Orchestrator decides. Scouts investigate. Architect and Designer shape. Smith forges. Quench verifies. Reviewers inspect. Ship delivers.
+
+- The main Codex session orchestrates the seven stages and never competes with Smith for task-file writes.
+- `pulmu_smith` is the only application/source/test writer and remains responsible for retry fixes.
+- Scouts, Architect, Designer, Failure Analyst, and Reviewers are read-only.
+- Independent read-only work may run in parallel; writer work never does.
+- Pattern remains conditional and nested inside Shape.
+- Ignite, deterministic Quench verification, and Ship use no subagent.
 
 ## Next likely work
 

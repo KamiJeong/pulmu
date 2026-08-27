@@ -1,8 +1,10 @@
 # Forge modes
 
-Forge mode controls depth, not stage presence.
+Forge mode controls depth and agent routing, not stage presence. Select a provisional mode during Ignite so Inspect can use the correct scouts. Inspect evidence may escalate the mode before Shape completes; do not downgrade after mode-specific agents have run.
 
 `🎨 Pattern` is independent of forge mode. Run it inside Shape whenever Inspect finds meaningful user-facing design impact, even in Quick Forge, and keep its depth proportional to the task. Skip it in any mode when the change has no meaningful user-facing design effect. Read `design-pass.md` only when Pattern runs.
+
+Read `agent-orchestration.md` for the authoritative mode-by-stage agent matrix and model/effort policy.
 
 ## Quick Forge
 
@@ -13,7 +15,7 @@ Use for narrowly scoped, low-risk work such as:
 - straightforward tests
 - local refactors with no public contract change
 
-Shape should be brief. Hone can be focused on the affected behavior. All seven stages still run.
+Inspect uses Explorer, Shape stays with the Orchestrator unless Architect is warranted, Hammer uses Smith, and Hone uses Reviewer plus Design Reviewer when Pattern ran. Designer still runs when Pattern is required. All seven stages still run.
 
 ## Standard Forge
 
@@ -24,7 +26,7 @@ Default for normal features and non-trivial fixes:
 - API integration without breaking contracts
 - meaningful state/data-flow changes
 
-Use a concrete plan, normal verification, and full correctness/regression review.
+Inspect uses Explorer and Test Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone uses Reviewer and Test Reviewer, plus Design Reviewer when Pattern ran.
 
 ## Full Forge
 
@@ -38,7 +40,7 @@ Use when any of these are present:
 - large dependency/framework migration
 - high blast radius or uncertain rollback
 
-Shape must address compatibility, rollout/migration, rollback, and security where relevant. Quench should use all meaningful available checks. Hone should be especially skeptical. Ship as draft by default.
+Inspect adds Risk Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone adds Security, Compatibility, or Design Reviewers only when their triggers apply. Shape must address compatibility, rollout/migration, rollback, and security where relevant. Quench should use all meaningful available checks. GitHub delivery ships as draft by default.
 
 ## Classification principle
 
