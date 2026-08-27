@@ -8,29 +8,46 @@ TITLE=""
 BODY_FILE=""
 DRAFT=0
 BASE_OVERRIDE=""
+DELIVERY="auto"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --title) TITLE="${2:-}"; shift 2 ;;
     --body-file) BODY_FILE="${2:-}"; shift 2 ;;
     --base) BASE_OVERRIDE="${2:-}"; shift 2 ;;
+    --delivery) DELIVERY="${2:-}"; shift 2 ;;
     --draft) DRAFT=1; shift ;;
     *) pulmu_die "unknown ship option: $1" ;;
   esac
 done
 
 [[ -n "$TITLE" ]] || pulmu_die "ship.sh requires --title"
+case "$DELIVERY" in
+  auto|local|github) ;;
+  *) pulmu_die "ship.sh --delivery must be auto, local, or github" ;;
+esac
 pulmu_require git
-pulmu_require gh
 ROOT="$(pulmu_repo_root)"
 cd "$ROOT"
-gh auth status >/dev/null 2>&1 || pulmu_die "GitHub CLI is not authenticated"
 
 BRANCH="$(git branch --show-current)"
 [[ "$BRANCH" == pulmu/* ]] || pulmu_die "Ship requires a pulmu/* branch; current branch: $BRANCH"
 BASE="$BASE_OVERRIDE"
 [[ -n "$BASE" ]] || BASE="$(cat .git/pulmu-base 2>/dev/null || true)"
 [[ -n "$BASE" ]] || BASE="$(pulmu_base_branch)"
+
+if [[ "$DELIVERY" == "auto" ]]; then
+  if pulmu_github_ready; then
+    DELIVERY="github"
+  else
+    DELIVERY="local"
+  fi
+elif [[ "$DELIVERY" == "github" ]]; then
+  [[ -n "$(pulmu_origin_url)" ]] || pulmu_die "GitHub delivery requires an origin remote"
+  pulmu_require gh
+  gh auth status >/dev/null 2>&1 || pulmu_die "GitHub delivery requires an authenticated GitHub CLI; run: gh auth login"
+  gh repo view --json nameWithOwner >/dev/null 2>&1 || pulmu_die "origin is not an accessible GitHub repository"
+fi
 
 if [[ -z "$(git status --porcelain)" ]]; then
   pulmu_die "there are no changes to ship"
@@ -42,12 +59,20 @@ if git diff --cached --quiet; then
 fi
 
 git commit -m "$TITLE"
+
+printf 'PULMU_COMMIT=%s\n' "$(git rev-parse HEAD)"
+printf 'PULMU_BRANCH=%s\n' "$BRANCH"
+printf 'PULMU_BASE=%s\n' "$BASE"
+printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"
+
+if [[ "$DELIVERY" == "local" ]]; then
+  exit 0
+fi
+
 git push -u origin "$BRANCH"
 
-cleanup_body=0
 if [[ -z "$BODY_FILE" ]]; then
   BODY_FILE="$ROOT/.git/pulmu-pr-body.md"
-  cleanup_body=1
   TASK="$(cat .git/pulmu-task 2>/dev/null || true)"
   {
     printf '## Purpose\n\n%s\n\n' "${TASK:-Pulmu task}"
@@ -68,9 +93,4 @@ fi
 args=(pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE")
 [[ "$DRAFT" -eq 1 ]] && args+=(--draft)
 PR_URL="$(gh "${args[@]}")"
-printf 'PULMU_COMMIT=%s\n' "$(git rev-parse HEAD)"
-printf 'PULMU_BRANCH=%s\n' "$BRANCH"
-printf 'PULMU_BASE=%s\n' "$BASE"
 printf 'PULMU_PR_URL=%s\n' "$PR_URL"
-
-[[ "$cleanup_body" -eq 1 ]] || true

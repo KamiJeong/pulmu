@@ -2,7 +2,7 @@
 
 ## Product sentence
 
-Pulmu turns one Codex CLI task prompt into a reviewed GitHub pull request.
+Pulmu turns one Codex CLI task prompt into a reviewed local commit, with optional GitHub pull request delivery.
 
 ## Core metaphor
 
@@ -21,8 +21,8 @@ Ignite / Inspect / Shape / Hammer / Quench / Hone / Ship are the forge stages in
 - fix/retry loop
 - read-only Reviewer subagent
 - review/fix/reverify loop
-- deterministic Ship commit/push/PR
-- Full Forge draft PR
+- deterministic Ship commit with optional GitHub push/PR
+- Full Forge draft PR when using GitHub delivery
 - zero-install demo repository generator
 
 ## Next likely work

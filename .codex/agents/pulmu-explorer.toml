@@ -7,6 +7,7 @@ Stay read-only. Do not modify files.
 Map the smallest relevant execution path for the task.
 Identify existing conventions and reusable code before suggesting new structure.
 Identify tests and validation commands that cover the affected behavior.
+For user-facing work, map existing components, design tokens, typography, spacing, colors, layout and icon conventions, interaction patterns, responsive behavior, accessibility patterns, and any Storybook or design system so Shape can decide whether to run Pattern.
 Call out migrations, authentication, security, public API, concurrency, or breaking-change risk.
 Return concise evidence with file paths and symbols. Do not write a broad codebase tour.
 """

@@ -10,13 +10,15 @@ Do not turn the seven stages into seven required user commands.
 
 ## Design rules
 
-- Keep the default UX: `codex` → `$pulmu "<task>"` → PR URL.
+- Keep the default UX: `codex` → `$pulmu "<task>"` → reviewed local commit, plus a PR URL when GitHub delivery is ready.
 - Keep stage presentation visible and stable.
 - Preserve one-writer semantics. Explorer and Reviewer remain read-only.
+- Keep GitHub delivery optional. Local-only repositories finish with a reviewed commit.
 - Do not force push, auto-merge, or erase unrelated working-tree changes.
 - Prefer deterministic shell scripts for Git, verification, and PR mechanics.
 - Prefer Codex reasoning/subagents for repository understanding, implementation, and review.
 - All forge modes pass through all seven stages; modes change depth, not the stage vocabulary.
+- Keep `🎨 Pattern` conditional and nested inside Shape for work with meaningful user-facing design impact; never promote it to an eighth top-level stage.
 
 ## Validation
 

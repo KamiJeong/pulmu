@@ -6,23 +6,32 @@
 
 > **`$pulmu` fires up the whole forge. Ignite, Inspect, Shape, Hammer, Quench, Hone, and Ship are the stages within it.**
 
-**Pulmu turns a task prompt into a reviewed GitHub pull request from inside Codex CLI.**
+**Pulmu turns a task prompt into a reviewed local commit from inside Codex CLI, with optional GitHub pull request delivery.**
 
 Named after the Korean bellows that keeps a traditional forge burning, Pulmu treats software delivery as a disciplined craft: understand the material, shape it carefully, test it under pressure, refine it, and ship it.
 
 ```text
 $pulmu "Add user search and include tests"
 
-🔥 Ignite   Preparing the forge...
-🔎 Inspect  Exploring the repository...
-📐 Shape    Forming the implementation plan...
-🔨 Hammer   Implementing...
-🌊 Quench   Running verification...
-🪨 Hone     Reviewing and refining...
-📦 Ship     Creating the pull request...
+🔥 Ignite — Preparing the forge
+  ✓ Repository ready · branch pulmu/user-search
+🔎 Inspect — Exploring the repository
+  ✓ Relevant code, tests, and conventions mapped
+📐 Shape — Forming the plan
+  ✓ Implementation approach defined
+  ✓ 🎨 Pattern — responsive layout and interaction states defined
+🔨 Hammer — Forging the change
+  ✓ Code and tests implemented
+🌊 Quench — Verifying the work
+  ✓ Lint, typecheck, tests, and build passed
+🪨 Hone — Refining the result
+  ✓ Review passed
+📦 Ship — Preparing delivery
+  ✓ Commit and selected delivery completed
 
 🔥 Pulmu complete
-   PR https://github.com/.../pull/123
+   Commit: abc1234
+   PR: https://github.com/.../pull/123
 ```
 
 Pulmu is intentionally **one user-facing skill**. You invoke `$pulmu` once; Codex orchestrates the full forge. The stages are not seven commands you must manually run.
@@ -31,25 +40,44 @@ Pulmu is intentionally **one user-facing skill**. You invoke `$pulmu` once; Code
 
 | Stage | Meaning | Owner |
 |---|---|---|
-| 🔥 **Ignite** | preflight, GitHub auth, base/branch preparation | deterministic script + Codex |
+| 🔥 **Ignite** | preflight, delivery detection, base/branch preparation | deterministic script + Codex |
 | 🔎 **Inspect** | map relevant code, conventions, tests, risks | `pulmu_explorer` read-only subagent |
-| 📐 **Shape** | choose forge mode and form the implementation plan | main Codex |
+| 📐 **Shape** | choose forge mode, form the implementation plan, and conditionally run Pattern | main Codex |
 | 🔨 **Hammer** | implement the smallest complete change | main Codex (single writer) |
 | 🌊 **Quench** | lint/typecheck/test/build and retry fixes when needed | deterministic script + main Codex |
 | 🪨 **Hone** | independent correctness/regression/security/test review | `pulmu_reviewer` read-only subagent |
-| 📦 **Ship** | commit, push, and create a GitHub PR | deterministic script + Codex |
+| 📦 **Ship** | commit locally; optionally push and create a GitHub PR | deterministic script + Codex |
 
 ### Status language
 
 Pulmu uses a small, consistent terminal vocabulary:
 
 ```text
-● active
-✓ success
-✗ failed
-↻ retry
+● current activity
+✓ completed result
+✗ failure
+↻ retry/refinement
 • sub-task
 ⚠ warning
+```
+
+### Conditional design pass
+
+`🎨 Pattern — Designing the experience` runs inside Shape only when Inspect finds meaningful user-facing design impact. It reuses the repository's design language and defines hierarchy, interaction states, responsive behavior, accessibility, and visual restraint before Hammer writes code. Backend-only, infrastructure, test-only, internal refactor, and invisible bug-fix work skips Pattern.
+
+Pattern never becomes an eighth top-level task:
+
+```text
+✓ 🔥 Ignite
+✓ 🔎 Inspect
+● 📐 Shape
+○ 🔨 Hammer
+○ 🌊 Quench
+○ 🪨 Hone
+○ 📦 Ship
+
+🎨 Pattern — Designing the experience
+  ● Defining hierarchy, interaction, responsive behavior, and accessibility
 ```
 
 ## Forge modes
@@ -58,17 +86,16 @@ Every mode still goes through **all seven stages**. Only the depth changes.
 
 - **Quick Forge** — small, low-risk, narrowly scoped changes.
 - **Standard Forge** — normal features and bug fixes.
-- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. Ships as a **draft PR** by default.
+- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. When delivered through GitHub, it ships as a **draft PR** by default.
 
 ## Requirements
 
 - Codex CLI with Skills support
 - Git
-- GitHub CLI (`gh`) authenticated (`gh auth status`)
-- a Git repository with an `origin` remote
+- a Git repository
 - the project's own runtime/toolchain for Quench (Node/Bun/Python/Rust/Go etc.)
 
-Pulmu never force-pushes and never merges a PR.
+For automatic GitHub delivery, add an `origin` remote and authenticate the optional GitHub CLI (`gh auth status`). Without those, Pulmu completes with a reviewed local commit. Pulmu never force-pushes and never merges a PR.
 
 ## Install for your user
 
@@ -84,9 +111,9 @@ This installs:
 ~/.codex/agents/pulmu-reviewer.toml
 ```
 
-Restart Codex if `$pulmu` does not appear immediately.
+Restart Codex if `$pulmu` does not appear immediately. The skill list shows it as **Pulmu Workflows**, while the invocation remains `$pulmu`.
 
-Then, from any GitHub-backed project:
+Then, from any Git project:
 
 ```bash
 cd ~/projects/my-project
@@ -133,12 +160,15 @@ pulmu/
 │   └── skills/
 │       └── pulmu/
 │           ├── SKILL.md
+│           ├── agents/
+│           │   └── openai.yaml
 │           ├── scripts/
 │           │   ├── common.sh
 │           │   ├── ignite.sh
 │           │   ├── quench.sh
 │           │   └── ship.sh
 │           └── references/
+│               ├── design-pass.md
 │               ├── forge-modes.md
 │               ├── stage-contract.md
 │               └── review-contract.md
@@ -167,7 +197,7 @@ Pulmu v0.1.0 intentionally keeps the workflow boring where boring is good:
 - existing uncommitted work blocks Ignite
 - Quench must pass before Ship
 - unresolved high/medium review findings block Ship
-- Full Forge produces a draft PR
+- Full Forge produces a draft PR when using GitHub delivery
 - no merge
 - no force push
 - no destructive cleanup of unrelated user changes
@@ -180,7 +210,7 @@ Run Pulmu's local integration tests:
 ./tests/test.sh
 ```
 
-The tests do not call a model. They verify shell syntax, demo tests, Quench discovery, installer layout, and a local `Ignite → branch → Quench → Ship` flow using a bare Git remote plus a fake `gh` command.
+The tests do not call a model. They verify shell syntax, demo tests, Quench discovery, installer layout, local-only delivery, and GitHub delivery using a bare Git remote plus a fake `gh` command.
 
 ## License
 
