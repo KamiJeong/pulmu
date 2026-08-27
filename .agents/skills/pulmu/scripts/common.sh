@@ -14,6 +14,17 @@ pulmu_repo_root() {
   git rev-parse --show-toplevel 2>/dev/null || pulmu_die "not inside a Git repository"
 }
 
+pulmu_origin_url() {
+  git remote get-url origin 2>/dev/null || true
+}
+
+pulmu_github_ready() {
+  [[ -n "$(pulmu_origin_url)" ]] || return 1
+  command -v gh >/dev/null 2>&1 || return 1
+  gh auth status >/dev/null 2>&1 || return 1
+  gh repo view --json nameWithOwner >/dev/null 2>&1
+}
+
 pulmu_base_branch() {
   local head base
   head="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"

@@ -8,12 +8,8 @@ TASK="${1:-}"
 [[ -n "$TASK" ]] || pulmu_die "usage: ignite.sh '<task>'"
 
 pulmu_require git
-pulmu_require gh
 ROOT="$(pulmu_repo_root)"
 cd "$ROOT"
-
-[[ -n "$(git remote get-url origin 2>/dev/null || true)" ]] || pulmu_die "origin remote is not configured"
-gh auth status >/dev/null 2>&1 || pulmu_die "GitHub CLI is not authenticated; run: gh auth login"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   pulmu_die "working tree is not clean; commit/stash your existing work before starting Pulmu"
@@ -27,6 +23,11 @@ BASE="$(pulmu_base_branch)"
 CURRENT="$(git branch --show-current)"
 SLUG="$(pulmu_slug "$TASK")"
 BRANCH="pulmu/$SLUG"
+ORIGIN="$(pulmu_origin_url)"
+DELIVERY="local"
+if pulmu_github_ready; then
+  DELIVERY="github"
+fi
 
 if [[ "$CURRENT" == pulmu/* ]]; then
   BRANCH="$CURRENT"
@@ -44,4 +45,5 @@ printf '%s\n' "$TASK" > .git/pulmu-task
 printf 'PULMU_REPO=%s\n' "$ROOT"
 printf 'PULMU_BASE=%s\n' "$BASE"
 printf 'PULMU_BRANCH=%s\n' "$BRANCH"
-printf 'PULMU_ORIGIN=%s\n' "$(git remote get-url origin)"
+printf 'PULMU_ORIGIN=%s\n' "$ORIGIN"
+printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"

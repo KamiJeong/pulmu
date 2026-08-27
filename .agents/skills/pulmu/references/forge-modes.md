@@ -2,6 +2,8 @@
 
 Forge mode controls depth, not stage presence.
 
+`🎨 Pattern` is independent of forge mode. Run it inside Shape whenever Inspect finds meaningful user-facing design impact, even in Quick Forge, and keep its depth proportional to the task. Skip it in any mode when the change has no meaningful user-facing design effect. Read `design-pass.md` only when Pattern runs.
+
 ## Quick Forge
 
 Use for narrowly scoped, low-risk work such as:

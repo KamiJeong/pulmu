@@ -8,4 +8,4 @@ Suggested task:
 $pulmu "Add complete(id) to TaskStore. Return false for an unknown ID; otherwise set completed=true and return true. Add tests too."
 ```
 
-Expected result: Pulmu creates a branch, implements the method and tests, runs `npm test`, reviews the diff, pushes, and opens a PR.
+Expected result: Pulmu creates a branch, implements the method and tests, runs `npm test`, reviews the diff, and creates a local commit. If GitHub delivery is available, it also pushes and opens a PR.

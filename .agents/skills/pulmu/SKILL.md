@@ -1,6 +1,6 @@
 ---
 name: pulmu
-description: Run the complete Pulmu software forge for a coding task from inside Codex CLI: prepare a safe branch, inspect the repository, plan, implement, verify, independently review/fix, commit, push, and open a GitHub pull request. Use when the user explicitly invokes $pulmu or asks Pulmu to take a task all the way to a PR. Do not use for read-only questions, explanations, or when the user does not want code/GitHub changes.
+description: "Run the complete Pulmu software forge for a coding task from inside Codex CLI: prepare a safe branch, inspect the repository, plan, implement, verify, independently review/fix, and commit the result locally, with optional GitHub push and pull request delivery. Use when the user explicitly invokes $pulmu or asks Pulmu to take a coding task through review and delivery. Do not use for read-only questions or explanations."
 ---
 
 # Pulmu
@@ -13,34 +13,38 @@ The user should normally invoke exactly one command:
 $pulmu "<task>"
 ```
 
-From that point, run the complete workflow without asking the user to manually invoke each stage. Only stop when an external condition makes safe automation impossible (for example: dirty working tree, missing GitHub authentication, destructive ambiguity that cannot be resolved from the repository, or repeated verification/review failure).
+From that point, run the complete workflow without asking the user to manually invoke each stage. GitHub is optional: every run can finish with a reviewed local commit, while a ready GitHub repository can additionally be pushed and opened as a pull request. Only stop when an external condition makes safe automation impossible (for example: dirty working tree, destructive ambiguity that cannot be resolved from the repository, or repeated verification/review failure).
 
-## Mandatory terminal presentation
+## Task progress and terminal presentation
 
-Make forge progress visible in the Codex CLI conversation. At the start of each stage, emit its line exactly once, before doing that stage's substantive work:
+Immediately after Pulmu starts, call Codex's `update_plan` tool with exactly the seven top-level forge stages defined in `references/stage-contract.md`. Keep exactly one stage `in_progress` while work is active, keep future stages `pending`, and update the plan whenever the active stage changes. Never add implementation details or `🎨 Pattern` as top-level plan items.
 
-```text
-🔥 Ignite   Preparing the forge...
-🔎 Inspect  Exploring the repository...
-📐 Shape    Forming the implementation plan...
-🔨 Hammer   Implementing...
-🌊 Quench   Running verification...
-🪨 Hone     Reviewing and refining...
-📦 Ship     Creating the pull request...
-```
-
-Use these status markers beneath a stage:
+Use the native task list as the primary progress UI. In ordinary progress messages, pair the forge concept with one concrete technical activity:
 
 ```text
-● active
-✓ success
-✗ failed
-↻ retry
-• sub-task
-⚠ warning
+🔥 Ignite — Preparing the forge
+  ● Validating repository and delivery access
+
+🔎 Inspect — Exploring the repository
+  ● Mapping relevant code, tests, and conventions
+
+📐 Shape — Forming the plan
+  ● Defining scope and implementation approach
+
+🔨 Hammer — Forging the change
+  ● Implementing code and tests
+
+🌊 Quench — Verifying the work
+  ● Running lint, typecheck, tests, and build
+
+🪨 Hone — Refining the result
+  ● Reviewing and resolving important findings
+
+📦 Ship — Preparing delivery
+  ● Committing and completing the selected delivery
 ```
 
-Keep stage updates concise. Do not narrate every file read or every internal thought. Codex's native tool output can remain native; Pulmu's stage lines are an additional workflow layer.
+Use `●`, `✓`, `✗`, `↻`, `•`, and `⚠` as the status language; do not repeat their meaning with text such as `active`, `success`, or `retry`. Keep each progress result to one line and replace the active line with a concise completion result when the stage finishes. Do not narrate every file read or internal thought.
 
 When the workflow finishes, print:
 
@@ -50,7 +54,8 @@ When the workflow finishes, print:
    Branch: <branch>
    Verification: <summary>
    Review: <PASS or summary>
-   PR: <url>
+   Commit: <sha>
+   PR: <url or not created (local delivery)>
 ```
 
 ## Invariants
@@ -58,13 +63,14 @@ When the workflow finishes, print:
 1. All forge modes go through all seven named stages. A mode changes depth, not stage presence.
 2. Only the main Codex session writes application code. Explorer and Reviewer stay read-only.
 3. Never force-push.
-4. Never merge the PR.
+4. Never merge a PR.
 5. Never discard unrelated user changes.
 6. A dirty working tree blocks Ignite unless the changes were created by the current Pulmu run.
 7. Quench must pass before Ship.
 8. High or medium Hone findings must be fixed and re-quenched before Ship, or the run must stop with a clear failure.
-9. Full Forge ships as a draft PR by default.
+9. When a Full Forge creates a PR, it is a draft by default.
 10. Do not claim a command/test/review passed unless you actually ran/received it.
+11. `🎨 Pattern` is a conditional design pass inside Shape, never an eighth top-level stage.
 
 Read `references/stage-contract.md`, `references/forge-modes.md`, and `references/review-contract.md` before executing the workflow.
 
@@ -84,7 +90,7 @@ bash <pulmu-skill-dir>/scripts/ignite.sh "$TASK"
 
 Capture its reported base branch and Pulmu branch. If Ignite fails, print `✗` with the concrete reason and stop. Do not work around dirty state by stashing, resetting, cleaning, or deleting user work.
 
-After success, print concise `✓` results (repository/GitHub/branch).
+After success, print concise `✓` results (repository/branch/delivery). Treat `PULMU_DELIVERY=local` as a supported result, not a warning or failure.
 
 ### 2. 🔎 Inspect — Exploring the repository
 
@@ -95,6 +101,7 @@ Spawn/use the `pulmu_explorer` custom subagent if available. Give it:
 - the user's exact task
 - base and Pulmu branch names
 - a request to identify relevant code paths, conventions, tests, and risk indicators
+- for user-facing work, a request to map reusable components, design tokens, layout and interaction conventions, responsive behavior, accessibility patterns, and any Storybook or design system
 
 If the custom agent is unavailable, perform the same inspection yourself without editing files.
 
@@ -117,6 +124,17 @@ Create a concrete implementation plan grounded in Inspect evidence. Keep the pla
 
 For Full Forge, include migration/rollback/security/compatibility considerations as applicable.
 
+Using Inspect evidence, decide whether the task has meaningful user-facing design impact. UI additions or changes, screens, dashboards, forms, navigation, interactions, responsive or mobile behavior, user-visible states, visual hierarchy, component composition, and other frontend UX changes require `🎨 Pattern`. Backend-only, API-only, infrastructure, CI/CD, test-only, internal refactors, and invisible bug fixes skip it.
+
+When Pattern is required, read `references/design-pass.md` and complete that design pass before Hammer. Pattern determines the intended experience; it does not implement or edit source code. Keep it subordinate to Shape in normal progress messages, for example:
+
+```text
+🎨 Pattern — Designing the experience
+  ● Defining hierarchy, interaction, responsive behavior, and accessibility
+```
+
+Record a concise Pattern brief with the implementation plan so Hammer and Hone can use it. Do not print a Pattern message when the pass is skipped.
+
 Print `✓ Forge: <mode>` and a terse plan summary.
 
 ### 4. 🔨 Hammer — Implementing
@@ -132,6 +150,7 @@ Rules:
 - add or update meaningful tests when behavior changes
 - avoid unrelated refactors
 - do not commit yet
+- when Pattern ran, implement its recorded hierarchy, states, responsive behavior, accessibility decisions, and design-language reuse
 
 Print brief `•` lines for meaningful file groups, not every edit operation.
 
@@ -170,8 +189,9 @@ Spawn/use `pulmu_reviewer` if available. Give it:
 - base branch
 - current branch/diff
 - Quench evidence
+- the Pattern brief when the conditional design pass ran
 
-The Reviewer is read-only and independent from Hammer.
+The Reviewer is read-only and independent from Hammer. When Pattern ran, Hone must also check that the implementation preserves the intended hierarchy, existing design language, responsive behavior, interaction states, accessibility, and visual restraint described in `references/design-pass.md`.
 
 If Hone reports high or medium findings:
 
@@ -186,31 +206,35 @@ Low-severity, non-blocking suggestions may remain in the final summary. High/med
 
 When review is clear, print `✓ Review: PASS`.
 
-### 7. 📦 Ship — Creating the pull request
+### 7. 📦 Ship — Finalizing delivery
 
 Print the Ship stage line.
 
-Before shipping, inspect `git status` and the final diff. Generate:
+Before shipping, inspect `git status` and the final diff. Generate a concise conventional commit title when appropriate.
 
-- a concise conventional commit title when appropriate
-- a PR body covering purpose, changes, verification, and Pulmu review
+Choose delivery from the user's request and Ignite output:
 
-Write the PR body to a temporary file outside the repository or under `.git/`.
+- use `local` when the user requests no external writes or Ignite reports local delivery
+- use `github` when the user explicitly requests a PR; missing GitHub setup then blocks Ship with a concrete recovery step
+- otherwise use Ignite's detected delivery, which preserves PR delivery for ready GitHub repositories and falls back to a local commit elsewhere
+
+For GitHub delivery, also generate a PR body covering purpose, changes, verification, and Pulmu review. Write it to a temporary file outside the repository or under `.git/`.
 
 Run:
 
 ```bash
 bash <pulmu-skill-dir>/scripts/ship.sh \
   --title "<commit-and-pr-title>" \
-  --body-file "<path-to-pr-body>" \
+  --delivery "<local|github>" \
+  [--body-file "<path-to-pr-body>"] \
   [--draft]
 ```
 
-Use `--draft` for Full Forge unless the user explicitly requested a ready-for-review PR and the change is demonstrably safe.
+Use `--draft` for Full Forge GitHub delivery unless the user explicitly requested a ready-for-review PR and the change is demonstrably safe.
 
-The script commits, pushes, and creates the PR. It never merges.
+The script always creates the local commit. In GitHub delivery it also pushes and creates the PR. It never force-pushes or merges.
 
-Capture the returned PR URL and print the final `🔥 Pulmu complete` block.
+Capture the returned commit and optional PR URL, then print the final `🔥 Pulmu complete` block. A successful local delivery completes Pulmu without a PR URL.
 
 ## Failure behavior
 
