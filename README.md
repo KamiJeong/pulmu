@@ -13,6 +13,8 @@ Named after the Korean bellows that keeps a traditional forge burning, Pulmu tre
 ```text
 $pulmu "Add user search and include tests"
 
+🔥 Pulmu — Starting the forge workflow
+
 🔥 Ignite — Preparing the forge
   ✓ Repository ready · branch pulmu/user-search
 🔎 Inspect — Exploring the repository
@@ -35,6 +37,8 @@ $pulmu "Add user search and include tests"
 ```
 
 Pulmu is intentionally **one user-facing skill**. You invoke `$pulmu` once; Codex orchestrates the full forge. The stages are not seven commands you must manually run.
+
+The one-line `🔥 Pulmu — Starting the forge workflow` banner identifies the workflow at run start. It is not an additional task or forge stage.
 
 ## Forge stages
 

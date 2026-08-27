@@ -12,6 +12,7 @@ Do not turn the seven stages into seven required user commands.
 
 - Keep the default UX: `codex` → `$pulmu "<task>"` → reviewed local commit, plus a PR URL when GitHub delivery is ready.
 - Keep stage presentation visible and stable.
+- Expose `🔥 Pulmu — Starting the forge workflow` once at run start as workflow identity; it is not a plan item or stage.
 - Preserve one-writer semantics. Explorer and Reviewer remain read-only.
 - Keep GitHub delivery optional. Local-only repositories finish with a reviewed commit.
 - Do not force push, auto-merge, or erase unrelated working-tree changes.

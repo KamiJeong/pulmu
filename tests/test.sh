@@ -49,6 +49,8 @@ skill_contract_test() {
   review="$ROOT/.agents/skills/pulmu/references/review-contract.md"
 
   grep -Fq "Codex's \`update_plan\` tool" "$skill" || return 1
+  [[ "$(grep -Fc '🔥 Pulmu — Starting the forge workflow' "$skill")" -eq 1 ]] || return 1
+  grep -Fq 'The banner is neither a plan item nor an eighth stage.' "$stage" || return 1
   grep -Fq '`references/design-pass.md`' "$skill" || return 1
   grep -Fq 'never an eighth top-level stage' "$skill" || return 1
   grep -Fq 'Pattern determines the intended experience; it does not implement or edit source code.' "$skill" || return 1

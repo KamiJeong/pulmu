@@ -34,6 +34,14 @@ Before advancing normally, mark the current item `completed` and the next item `
 
 Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and pull-request creation for GitHub delivery. A successful run finishes with all seven items `completed`.
 
+Expose the workflow identity once per run in ordinary progress output:
+
+```text
+🔥 Pulmu — Starting the forge workflow
+```
+
+The banner is neither a plan item nor an eighth stage. Show it once at run start, then use the stage presentation below without repeating the banner during transitions or retries.
+
 ## Terminal contract
 
 At stage start, show the forge concept and one concrete technical activity:

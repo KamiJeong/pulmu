@@ -19,6 +19,14 @@ From that point, run the complete workflow without asking the user to manually i
 
 Immediately after Pulmu starts, call Codex's `update_plan` tool with exactly the seven top-level forge stages defined in `references/stage-contract.md`. Keep exactly one stage `in_progress` while work is active, keep future stages `pending`, and update the plan whenever the active stage changes. Never add implementation details or `🎨 Pattern` as top-level plan items.
 
+At the start of every run, expose the workflow identity exactly once in ordinary progress output before substantive Ignite work:
+
+```text
+🔥 Pulmu — Starting the forge workflow
+```
+
+This banner is not a plan item or forge stage. Do not repeat it on stage transitions or retries.
+
 Use the native task list as the primary progress UI. In ordinary progress messages, pair the forge concept with one concrete technical activity:
 
 ```text
