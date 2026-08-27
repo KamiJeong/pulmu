@@ -6,7 +6,9 @@ source "$SCRIPT_DIR/common.sh"
 
 ROOT="$(pulmu_repo_root)"
 cd "$ROOT"
-LOG="$ROOT/.git/pulmu-quench.log"
+GIT_DIR="$(pulmu_git_dir)"
+LOG="$GIT_DIR/pulmu-quench.log"
+rm -f "$(pulmu_metadata_dir)/quench_fingerprint" "$(pulmu_metadata_dir)/hone_fingerprint" "$(pulmu_metadata_dir)/delivery_fingerprint"
 : > "$LOG"
 
 run_check() {
@@ -74,4 +76,8 @@ if [[ "$checks" -eq 0 ]]; then
 fi
 
 printf 'PULMU_QUENCH_CHECKS=%s\n' "$checks" | tee -a "$LOG"
+if [[ "$(pulmu_metadata_read status 2>/dev/null || true)" == "final" ]]; then
+  pulmu_metadata_write quench_fingerprint "$(pulmu_changed_fingerprint)"
+  printf 'PULMU_QUENCH=PASS\n' | tee -a "$LOG"
+fi
 printf 'PULMU_QUENCH_LOG=%s\n' "$LOG"

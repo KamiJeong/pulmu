@@ -7,8 +7,7 @@ AGENT_DST="${HOME}/.codex/agents"
 mkdir -p "$(dirname "$SKILL_DST")" "$AGENT_DST"
 rm -rf "$SKILL_DST"
 cp -R "$ROOT/.agents/skills/pulmu" "$SKILL_DST"
-cp "$ROOT/.codex/agents/pulmu-explorer.toml" "$AGENT_DST/pulmu-explorer.toml"
-cp "$ROOT/.codex/agents/pulmu-reviewer.toml" "$AGENT_DST/pulmu-reviewer.toml"
+cp "$ROOT/.codex/agents/"pulmu-*.toml "$AGENT_DST/"
 chmod +x "$SKILL_DST/scripts/"*.sh
 
 printf '✓ Installed Pulmu skill: %s\n' "$SKILL_DST"

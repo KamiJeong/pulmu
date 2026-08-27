@@ -13,8 +13,10 @@ Named after the Korean bellows that keeps a traditional forge burning, Pulmu tre
 ```text
 $pulmu "Add user search and include tests"
 
+🔥 Pulmu — Starting the forge workflow
+
 🔥 Ignite — Preparing the forge
-  ✓ Repository ready · branch pulmu/user-search
+  ✓ Repository ready · branch pulmu/feat/user-search
 🔎 Inspect — Exploring the repository
   ✓ Relevant code, tests, and conventions mapped
 📐 Shape — Forming the plan
@@ -36,17 +38,41 @@ $pulmu "Add user search and include tests"
 
 Pulmu is intentionally **one user-facing skill**. You invoke `$pulmu` once; Codex orchestrates the full forge. The stages are not seven commands you must manually run.
 
+The one-line `🔥 Pulmu — Starting the forge workflow` banner identifies the workflow at run start. It is not an additional task or forge stage.
+
+## Agent orchestration
+
+```text
+Orchestrator
+  ↓
+Scouts
+  ↓
+Architect / Designer
+  ↓
+Smith
+  ↓
+Quench
+  ↓
+Independent Reviewers
+  ↓
+Ship
+```
+
+Orchestrator decides. Scouts investigate. Architect and Designer shape. Smith forges. Quench verifies. Reviewers inspect. Ship delivers.
+
+The main Codex session owns the native progress plan, Forge Mode, stage transitions, agent routing, evidence consolidation, retries, and delivery. `pulmu_smith` is the sole application/source/test writer. All Scouts, Architect, Designer, Failure Analyst, and Reviewers are read-only. Independent read-only work can run in parallel; Pulmu never runs competing writers in one working tree.
+
 ## Forge stages
 
 | Stage | Meaning | Owner |
 |---|---|---|
-| 🔥 **Ignite** | preflight, delivery detection, base/branch preparation | deterministic script + Codex |
-| 🔎 **Inspect** | map relevant code, conventions, tests, risks | `pulmu_explorer` read-only subagent |
-| 📐 **Shape** | choose forge mode, form the implementation plan, and conditionally run Pattern | main Codex |
-| 🔨 **Hammer** | implement the smallest complete change | main Codex (single writer) |
-| 🌊 **Quench** | lint/typecheck/test/build and retry fixes when needed | deterministic script + main Codex |
-| 🪨 **Hone** | independent correctness/regression/security/test review | `pulmu_reviewer` read-only subagent |
-| 📦 **Ship** | commit locally; optionally push and create a GitHub PR | deterministic script + Codex |
+| 🔥 **Ignite** | preflight, delivery detection, base/branch preparation, provisional mode | deterministic script + Orchestrator |
+| 🔎 **Inspect** | map relevant code, conventions, tests, and risk | read-only Scouts |
+| 📐 **Shape** | form the architecture brief and conditionally run Pattern | Orchestrator + read-only Architect/Designer |
+| 🔨 **Hammer** | implement the smallest complete change | `pulmu_smith` only |
+| 🌊 **Quench** | lint/typecheck/test/build; analyze nontrivial failures when needed | deterministic script + conditional read-only Analyst |
+| 🪨 **Hone** | independently review correctness, tests, security, compatibility, and design | read-only Reviewers |
+| 📦 **Ship** | commit locally; optionally push and create a GitHub PR | deterministic script + Orchestrator |
 
 ### Status language
 
@@ -86,7 +112,15 @@ Every mode still goes through **all seven stages**. Only the depth changes.
 
 - **Quick Forge** — small, low-risk, narrowly scoped changes.
 - **Standard Forge** — normal features and bug fixes.
-- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. When delivered through GitHub, it ships as a **draft PR** by default.
+- **Full Forge** — migrations, auth/security, cross-cutting or breaking changes. A **high-risk** Full Forge ships as a draft PR by configured default; Full alone does not force draft status.
+
+| Mode | Inspect | Shape | Hammer | Hone |
+|---|---|---|---|---|
+| Quick | Explorer | Orchestrator; Designer only for Pattern | Smith | Reviewer; Design Reviewer when Pattern ran |
+| Standard | Explorer + Test Scout | Architect; Designer only for Pattern | Smith | Reviewer + Test Reviewer; Design Reviewer when Pattern ran |
+| Full | Explorer + Test Scout + Risk Scout | Architect; Designer only for Pattern | Smith | Standard reviewers plus conditional Security and Compatibility Reviewers; Design Reviewer when Pattern ran |
+
+Pulmu uses Luna/medium for narrow repetitive inspection, Terra/medium-or-high for exploration and review, and Sol/high for architecture, design, implementation, and critical review. Only explicitly high-risk authentication, authorization, payment, destructive migration, data-loss, cryptography, concurrency, or public-API-breaking work may escalate Architect or Security Reviewer to `xhigh`; the default workflow never uses `max`.
 
 ## Requirements
 
@@ -96,6 +130,65 @@ Every mode still goes through **all seven stages**. Only the depth changes.
 - the project's own runtime/toolchain for Quench (Node/Bun/Python/Rust/Go etc.)
 
 For automatic GitHub delivery, add an `origin` remote and authenticate the optional GitHub CLI (`gh auth status`). Without those, Pulmu completes with a reviewed local commit. Pulmu never force-pushes and never merges a PR.
+
+## Git and GitHub delivery policy
+
+> **Pulmu does not impose Git Flow. It detects and respects the repository's existing delivery strategy.**
+
+Ignite detects an existing base branch from explicit Pulmu config, repository instructions, the current convention, GitHub's default, then existing `main` or `develop`. Work branches use `pulmu/<type>/<short-kebab-slug>` such as `pulmu/feat/user-search`, `pulmu/fix/login-redirect`, or `pulmu/docs/api-guide`. Local and remote name collisions receive a safe numeric suffix. Active legacy Pulmu branches retain their recorded base and fail closed when canonical metadata and `.git` provenance conflict.
+
+Inspect and Shape decide task metadata once:
+
+```yaml
+task:
+  type: feature
+  forge: standard
+  risk: medium
+areas: [frontend, design]
+pattern: true
+security_review: false
+compatibility_review: false
+```
+
+The same record drives review routing and every Ship artifact:
+
+```text
+Pulmu Metadata
+      |
+      +-- Type / Forge / Risk / Area / Pattern
+      |
+      v
+📦 Ship
+      |
+      +-- Branch / Commit / PR Title / PR Body / Labels
+      |
+      v
+GitHub Pull Request
+```
+
+Ship begins only after Quench PASS and non-blocking Hone evidence match the exact final diff. It generates a meaningful Conventional Commit/PR title, stages only expected paths, creates one cohesive commit, normally pushes, and reuses only a PR matching both head and base. Reused PRs receive the canonical title/body; a supplied `--body-file` is supplemental and cannot replace required sections. A GitHub Ship completes only when a real PR URL is returned. It does not merge, force-push, or invent reviewers/assignees.
+
+Generated PRs include Summary, Changes, the seven-stage Pulmu Forge result, actual Verification evidence, Risk, Review Focus, and Pulmu Metadata. Labels are bounded to `pulmu`, one `type:*`, one `forge:*`, one `risk:*`, and one to three relevant `area:*` labels. By default, missing labels are skipped and reported; if discovery, creation, or application of labels fails, the label failure is reported while a valid PR delivery still completes. Pulmu does not rewrite the repository taxonomy.
+
+Optional `.pulmu/config.toml` settings use safe defaults:
+
+```toml
+[git]
+branch_prefix = "pulmu"
+conventional_commits = true
+
+[github]
+create_pr = true
+apply_labels = true
+create_missing_labels = false
+full_forge_draft = true
+
+[policy]
+auto_merge = false
+force_push = false
+```
+
+`git.base_branch` may explicitly select an existing branch. The parser accepts only the documented scalar subset and never sources or evaluates the file. Unsafe `auto_merge = true` or `force_push = true` values are rejected. See [the full delivery contract](./.agents/skills/pulmu/references/delivery-policy.md).
 
 ## Install for your user
 
@@ -107,8 +200,7 @@ This installs:
 
 ```text
 ~/.agents/skills/pulmu/
-~/.codex/agents/pulmu-explorer.toml
-~/.codex/agents/pulmu-reviewer.toml
+~/.codex/agents/pulmu-*.toml
 ```
 
 Restart Codex if `$pulmu` does not appear immediately. The skill list shows it as **Pulmu Workflows**, while the invocation remains `$pulmu`.
@@ -165,9 +257,12 @@ pulmu/
 │           ├── scripts/
 │           │   ├── common.sh
 │           │   ├── ignite.sh
+│           │   ├── metadata.sh
 │           │   ├── quench.sh
 │           │   └── ship.sh
 │           └── references/
+│               ├── agent-orchestration.md
+│               ├── delivery-policy.md
 │               ├── design-pass.md
 │               ├── forge-modes.md
 │               ├── stage-contract.md
@@ -176,7 +271,17 @@ pulmu/
 │   ├── config.toml
 │   └── agents/
 │       ├── pulmu-explorer.toml
-│       └── pulmu-reviewer.toml
+│       ├── pulmu-test-scout.toml
+│       ├── pulmu-risk-scout.toml
+│       ├── pulmu-architect.toml
+│       ├── pulmu-designer.toml
+│       ├── pulmu-smith.toml
+│       ├── pulmu-failure-analyst.toml
+│       ├── pulmu-reviewer.toml
+│       ├── pulmu-test-reviewer.toml
+│       ├── pulmu-security-reviewer.toml
+│       ├── pulmu-compat-reviewer.toml
+│       └── pulmu-design-reviewer.toml
 ├── assets/
 │   └── pulmu-joseon-forge.png
 ├── examples/task-store/
@@ -190,14 +295,14 @@ pulmu/
 
 ## Safety boundaries
 
-Pulmu v0.1.0 intentionally keeps the workflow boring where boring is good:
+Pulmu intentionally keeps the workflow boring where boring is good:
 
-- one writer at a time
-- Explorer and Reviewer are read-only
+- one writer at a time: `pulmu_smith`
+- every other custom agent is read-only
 - existing uncommitted work blocks Ignite
 - Quench must pass before Ship
 - unresolved high/medium review findings block Ship
-- Full Forge produces a draft PR when using GitHub delivery
+- high-risk Full Forge produces a draft PR by configured default
 - no merge
 - no force push
 - no destructive cleanup of unrelated user changes
@@ -210,7 +315,7 @@ Run Pulmu's local integration tests:
 ./tests/test.sh
 ```
 
-The tests do not call a model. They verify shell syntax, demo tests, Quench discovery, installer layout, local-only delivery, and GitHub delivery using a bare Git remote plus a fake `gh` command.
+The tests do not call a model. They verify shell and TOML syntax, the exact agent inventory and writer boundary, skill/reference consistency, metadata propagation, base and branch policy, safe configuration, Quench/Hone delivery gates, local-only delivery, label handling, draft policy, and GitHub delivery using a bare Git remote plus a fake `gh` command.
 
 ## License
 

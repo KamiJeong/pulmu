@@ -12,7 +12,10 @@ Do not turn the seven stages into seven required user commands.
 
 - Keep the default UX: `codex` → `$pulmu "<task>"` → reviewed local commit, plus a PR URL when GitHub delivery is ready.
 - Keep stage presentation visible and stable.
-- Preserve one-writer semantics. Explorer and Reviewer remain read-only.
+- Expose `🔥 Pulmu — Starting the forge workflow` once at run start as workflow identity; it is not a plan item or stage.
+- The main Codex session is the Orchestrator: it owns stage transitions, routing, consolidation, retries, and delivery.
+- Preserve one-writer semantics. `pulmu_smith` is the only agent that writes application, source, or test files; all other Pulmu agents remain read-only.
+- Keep independent read-only agent work parallel where useful, but never spawn agents merely to increase agent count.
 - Keep GitHub delivery optional. Local-only repositories finish with a reviewed commit.
 - Do not force push, auto-merge, or erase unrelated working-tree changes.
 - Prefer deterministic shell scripts for Git, verification, and PR mechanics.

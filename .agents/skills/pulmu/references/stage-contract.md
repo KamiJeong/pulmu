@@ -30,9 +30,19 @@ Keep exactly one item `in_progress` while work is active, all future stages `pen
 
 `🎨 Pattern` is a conditional design pass inside Shape. Never add it as an eighth plan item. When Pattern runs, show it only as a subordinate progress message while Shape remains `in_progress`.
 
-Before advancing normally, mark the current item `completed` and the next item `in_progress` in the same plan update. If Quench fails, return the existing Quench item to `pending`, move the existing Hammer item to `in_progress`, fix the failure, complete Hammer, and move Quench back to `in_progress`. If Hone reports blocking findings, reuse the existing items for Hammer → Quench → Hone in the same way. Never duplicate retry items.
+Custom agents are also subordinate work, never plan items. Report them only through concise ordinary progress lines such as `• Explorer mapping relevant modules`, `• Architect defining module boundaries`, or `• 🎨 Pattern — Designer reviewing responsive behavior`.
 
-Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and pull-request creation for GitHub delivery. A successful run finishes with all seven items `completed`.
+Before advancing normally, mark the current item `completed` and the next item `in_progress` in the same plan update. If Quench fails, return the existing Quench item to `pending`, move the existing Hammer item to `in_progress`, have the same Smith fix the failure, complete Hammer, and move Quench back to `in_progress`. If Hone reports blocking findings, reuse the existing items and same Smith for Hammer → Quench → Hone. Never duplicate retry or reviewer items.
+
+Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings for the exact final diff. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and a real pull-request URL for GitHub delivery. A successful run finishes with all seven items `completed`.
+
+Expose the workflow identity once per run in ordinary progress output:
+
+```text
+🔥 Pulmu — Starting the forge workflow
+```
+
+The banner is neither a plan item nor an eighth stage. Show it once at run start, then use the stage presentation below without repeating the banner during transitions or retries.
 
 ## Terminal contract
 
@@ -79,4 +89,4 @@ Hammer → Quench ──fail──→ Hammer → Quench
 Quench → Hone ─finding─→ Hammer → Quench → Hone
 ```
 
-Ship only follows a passing Quench and non-blocking Hone. It always creates a local commit; GitHub push and pull-request creation are optional delivery steps.
+Ship only follows a passing Quench and non-blocking Hone. Task metadata is finalized once after Shape and reused by review and Ship. It always creates a local commit; GitHub push and pull-request creation are optional delivery steps. Git metadata work remains subordinate Ship progress, never additional top-level tasks.
