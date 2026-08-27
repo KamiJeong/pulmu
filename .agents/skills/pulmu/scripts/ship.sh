@@ -9,6 +9,7 @@ BODY_FILE=""
 DRAFT=0
 BASE_OVERRIDE=""
 DELIVERY="auto"
+EXPECT_RUN_ID=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,6 +17,7 @@ while [[ $# -gt 0 ]]; do
     --body-file) BODY_FILE="${2:-}"; shift 2 ;;
     --base) BASE_OVERRIDE="${2:-}"; shift 2 ;;
     --delivery) DELIVERY="${2:-}"; shift 2 ;;
+    --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;;
     --draft) DRAFT=1; shift ;;
     *) pulmu_die "unknown ship option: $1" ;;
   esac
@@ -28,6 +30,10 @@ pulmu_load_config "$ROOT"
 GIT_DIR="$(pulmu_git_dir)"
 METADATA_DIR="$(pulmu_metadata_dir)"
 
+[[ -n "$EXPECT_RUN_ID" ]] || pulmu_die "Ship requires --expect-run-id from Ignite"
+[[ "$(pulmu_metadata_read run_id 2>/dev/null || true)" == "$EXPECT_RUN_ID" ]] || pulmu_die "Ship metadata runId changed; refusing stale operation"
+RUN_DETECT_OUTPUT="$(pulmu_run_context detect 2>/dev/null || true)"
+[[ "$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$RUN_DETECT_OUTPUT")" == "$EXPECT_RUN_ID" ]] || pulmu_die "Run Context runId changed; refusing stale Ship operation"
 [[ "$(pulmu_metadata_read status 2>/dev/null || true)" == "final" ]] || pulmu_die "Ship requires finalized Pulmu task metadata"
 BRANCH="$(git branch --show-current)"
 [[ "$BRANCH" == "$(pulmu_metadata_read branch)" ]] || pulmu_die "Ship branch does not match finalized metadata: $BRANCH"
@@ -45,6 +51,7 @@ if [[ -n "$TITLE_OVERRIDE" && "$TITLE_OVERRIDE" != "$TITLE" ]]; then
   pulmu_die "Ship title must match the generated delivery metadata"
 fi
 [[ -f "$METADATA_DIR/changes" && -f "$METADATA_DIR/paths.z" ]] || pulmu_die "Ship delivery metadata is incomplete"
+pulmu_run_context set-stage ship --expect-run-id "$EXPECT_RUN_ID" >/dev/null
 SUPPLEMENTAL_BODY_FILE="$BODY_FILE"
 if [[ -n "$SUPPLEMENTAL_BODY_FILE" ]]; then
   [[ -f "$SUPPLEMENTAL_BODY_FILE" ]] || pulmu_die "supplemental PR body file does not exist: $SUPPLEMENTAL_BODY_FILE"
@@ -92,7 +99,10 @@ printf 'PULMU_BRANCH=%s\n' "$BRANCH"
 printf 'PULMU_BASE=%s\n' "$BASE"
 printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"
 
-if [[ "$DELIVERY" == "local" ]]; then exit 0; fi
+if [[ "$DELIVERY" == "local" ]]; then
+  pulmu_run_context complete --delivery local --commit "$COMMIT" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+  exit 0
+fi
 
 # A normal upstream push is the only push mode. Pulmu never invokes force options.
 git push -u origin "$BRANCH"
@@ -185,6 +195,7 @@ else
   gh pr edit "$PR_URL" --title "$TITLE" --body-file "$BODY_FILE" >/dev/null
 fi
 [[ "$PR_URL" =~ ^https://[^[:space:]]+/pull/[0-9]+$ ]] || pulmu_die "GitHub delivery did not return a real pull-request URL"
+PR_NUMBER="${PR_URL##*/}"
 
 APPLIED=0
 for label in "${AVAILABLE_LABELS[@]}"; do
@@ -199,3 +210,4 @@ printf 'PULMU_LABEL_DISCOVERY=%s\n' "$LABEL_DISCOVERY"
 if [[ "${#MISSING_LABELS[@]}" -gt 0 ]]; then printf 'PULMU_LABELS_SKIPPED=%s\n' "$(IFS=,; printf '%s' "${MISSING_LABELS[*]}")"; fi
 if [[ "${#UNAPPLIED_LABELS[@]}" -gt 0 ]]; then printf 'PULMU_LABELS_UNAPPLIED=%s\n' "$(IFS=,; printf '%s' "${UNAPPLIED_LABELS[*]}")"; fi
 printf 'PULMU_PR_URL=%s\n' "$PR_URL"
+pulmu_run_context complete --delivery github --commit "$COMMIT" --pr-number "$PR_NUMBER" --pr-url "$PR_URL" --expect-run-id "$EXPECT_RUN_ID" >/dev/null

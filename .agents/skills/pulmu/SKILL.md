@@ -17,7 +17,19 @@ From that point, run the complete workflow without asking the user to manually i
 
 ## Task progress and terminal presentation
 
-Immediately after Pulmu starts, call Codex's `update_plan` tool with exactly the seven top-level forge stages defined in `references/stage-contract.md`. Keep exactly one stage `in_progress` while work is active, keep future stages `pending`, and update the plan whenever the active stage changes. Never add implementation details or `🎨 Pattern` as top-level plan items.
+Immediately after Pulmu starts, call Codex's `update_plan` tool with exactly these seven step strings in this order:
+
+```text
+🔥 Ignite — Prepare
+🔎 Inspect — Explore
+📐 Shape — Design
+🔨 Hammer — Implement
+🌊 Quench — Verify
+🪨 Hone — Review
+📦 Ship — Deliver
+```
+
+Keep these strings unchanged for the entire run. Keep exactly one stage `in_progress` while work is active, keep future stages `pending`, and update only the native plan status whenever the active stage changes. Do not put status words such as `active`, `pending`, or `completed` inside step text. Never add implementation details or `🎨 Pattern` as top-level plan items.
 
 At the start of every run, expose the workflow identity exactly once in ordinary progress output before substantive Ignite work:
 
@@ -27,32 +39,32 @@ At the start of every run, expose the workflow identity exactly once in ordinary
 
 This banner is not a plan item or forge stage. Do not repeat it on stage transitions or retries.
 
-Use the native task list as the primary progress UI. In ordinary progress messages, pair the forge concept with one concrete technical activity:
+Use the native task list as the persistent high-level forge checklist. In ordinary progress messages, show only the current stage and one concrete technical activity outside the plan:
 
 ```text
-🔥 Ignite — Preparing the forge
+🔥 Ignite
   ● Validating repository and delivery access
 
-🔎 Inspect — Exploring the repository
+🔎 Inspect
   ● Mapping relevant code, tests, and conventions
 
-📐 Shape — Forming the plan
+📐 Shape
   ● Defining scope and implementation approach
 
-🔨 Hammer — Forging the change
+🔨 Hammer
   ● Implementing code and tests
 
-🌊 Quench — Verifying the work
+🌊 Quench
   ● Running lint, typecheck, tests, and build
 
-🪨 Hone — Refining the result
+🪨 Hone
   ● Reviewing and resolving important findings
 
-📦 Ship — Preparing delivery
+📦 Ship
   ● Committing and completing the selected delivery
 ```
 
-Use `●`, `✓`, `✗`, `↻`, `•`, and `⚠` as the status language; do not repeat their meaning with text such as `active`, `success`, or `retry`. Keep each progress result to one line and replace the active line with a concise completion result when the stage finishes. Do not narrate every file read or internal thought.
+Use `●`, `✓`, `✗`, `↻`, `•`, and `⚠` as the status language; do not repeat their meaning with text such as `active`, `success`, or `retry`. Keep each progress result to one line and replace the active line with a concise completion result when the stage finishes. Do not repeat the full plan in normal assistant messages, and do not narrate every file read or internal thought.
 
 When the workflow finishes, print:
 
@@ -84,13 +96,41 @@ When the workflow finishes, print:
 14. If `pulmu_smith` is unavailable, stop at Hammer with a recovery step; do not silently fall back to another writer.
 15. Finalize task metadata once after Shape. Review and Ship consume it instead of re-inferring it.
 
-Read `references/stage-contract.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, `references/review-contract.md`, and `references/delivery-policy.md` before executing the workflow.
+Read `references/stage-contract.md`, `references/run-context.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, `references/review-contract.md`, and `references/delivery-policy.md` before executing the workflow.
+
+## Persistent Run Context
+
+Codex `update_plan` is the human progress UI. `<git-dir>/pulmu/run.json` is the machine-readable runtime state. **update_plan shows the forge to humans. Run Context exposes the forge to machines.** Run Context records existing decisions; it never re-infers metadata or changes the seven-stage workflow.
+
+Ignite creates the file and reports `PULMU_RUN_ID`. Capture that ID as `RUN_ID` for the run. Whenever the active plan stage changes, call the deterministic helper immediately adjacent to the `update_plan` transition:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh set-stage inspect --expect-run-id "$RUN_ID"
+```
+
+Before spawning stage agents, set their canonical names; clear them after all finish:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh set-agents pulmu_explorer pulmu_test_scout --expect-run-id "$RUN_ID"
+# spawn/await agents
+bash <pulmu-skill-dir>/scripts/run-context.sh set-agents --expect-run-id "$RUN_ID"
+```
+
+Use the mode-specific exact agent set. Record `pulmu_smith` throughout Hammer and each Smith fix. Increment `quench` or `hone` before following the existing retry transitions, without creating another run. `metadata.sh finalize` copies canonical Shape metadata, and `ship.sh` records completion only after its existing local/GitHub success gate.
+
+If Pulmu must stop, record a concise safe terminal state first:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh fail --code "<STABLE_CODE>" --message "<concise reason>" --expect-run-id "$RUN_ID"
+```
+
+Use `interrupt` for an interrupted session. Never put credentials, environment values, raw logs, full command output, or model responses in Run Context. A previous `running` state is reported and archived as interrupted only when the next Ignite can actually initialize its replacement; it is never resumed automatically. If dirty work blocks Ignite, report the prior run but leave it unchanged because it may still be live.
 
 ## Forge workflow
 
-### 1. 🔥 Ignite — Preparing the forge
+### 1. 🔥 Ignite
 
-Print the Ignite stage line.
+Emit the concise Ignite activity line outside the plan.
 
 Run the skill's `scripts/ignite.sh`, passing the Orchestrator's provisional task type, a short meaningful slug, and the user's task. The script performs deterministic preflight checks, detects the repository base policy, creates/reuses a `pulmu/<mapped-type>/<slug>` branch, and initializes provisional metadata.
 
@@ -107,11 +147,13 @@ Capture its reported base branch and Pulmu branch. If Ignite fails, print `✗` 
 
 After success, print concise `✓` results (repository/branch/delivery). Treat `PULMU_DELIVERY=local` as a supported result, not a warning or failure.
 
+Capture `PULMU_RUN_ID` from Ignite. The created state is `running` at `ignite`; all subsequent Run Context mutations in this run use that same ID.
+
 The Orchestrator selects a provisional **Quick**, **Standard**, or **Full** Forge from the task and preflight evidence before Inspect so the correct scouts can be routed. Inspect may reveal evidence that requires escalation to a deeper mode; do not downgrade after mode-specific agents have run.
 
-### 2. 🔎 Inspect — Exploring the repository
+### 2. 🔎 Inspect
 
-Print the Inspect stage line.
+Emit the concise Inspect activity line outside the plan.
 
 Run the mode-specific Inspect agents from `references/agent-orchestration.md`:
 
@@ -125,13 +167,15 @@ Run independent read-only scouts in parallel when useful. Give them:
 - base and Pulmu branch names
 - their role-specific request from `references/agent-orchestration.md`
 
+Set the Run Context stage to `inspect`, then set the exact active scout names immediately before spawning them. Clear the active list after all scouts finish.
+
 The Orchestrator consolidates all scout evidence into one Inspect summary. It may perform additional read-only inspection itself, but it does not edit task files. If a required role is unavailable, continue only when the missing evidence can be obtained safely without violating the writer contract; otherwise stop with a recovery step.
 
 Summarize only the evidence needed for Shape. Print a few concise `✓`/`•` lines.
 
-### 3. 📐 Shape — Forming the implementation plan
+### 3. 📐 Shape
 
-Print the Shape stage line. Confirm the provisional Forge Mode using Inspect evidence and escalate it when required. All modes still use every Pulmu stage.
+Emit the concise Shape activity line outside the plan. Confirm the provisional Forge Mode using Inspect evidence and escalate it when required. All modes still use every Pulmu stage.
 
 For Standard and Full Forge, run read-only `pulmu_architect`. Quick Forge uses the Orchestrator unless complexity warrants the Architect. The Orchestrator consolidates Architect output into the final implementation brief. Explicitly define:
 
@@ -159,18 +203,23 @@ Finalize the canonical task metadata once, after the architecture and conditiona
 bash <pulmu-skill-dir>/scripts/metadata.sh finalize \
   --type "<type>" --forge "<quick|standard|full>" --risk "<low|medium|high>" \
   --areas "<comma-separated areas>" --pattern "<true|false>" \
-  --security-review "<true|false>" --compatibility-review "<true|false>"
+  --security-review "<true|false>" --compatibility-review "<true|false>" \
+  --expect-run-id "$RUN_ID"
 ```
 
 Do not change these fields later or re-infer them in Ship. Pattern automatically propagates frontend and design areas; when Pattern is skipped, do not add design metadata without independent repository evidence.
 
 Print `✓ Forge: <mode>` and a terse plan summary.
 
-### 4. 🔨 Hammer — Implementing
+Keep Run Context at `shape` while Architect and optional Designer work. Set the active list for each actual agent group and clear it afterward. `metadata.sh finalize` synchronizes the already-decided canonical metadata into Run Context.
 
-Print the Hammer stage line.
+### 4. 🔨 Hammer
+
+Emit the concise Hammer activity line outside the plan.
 
 Spawn `pulmu_smith` with the original task, repository instructions, Inspect summary, architecture brief, and Pattern brief when present. Smith is the only task-file writer. Reuse the same Smith agent for all task-related fixes in this run.
+
+Set Run Context to `hammer` and record `pulmu_smith` before spawning or reusing Smith. Clear it only after Smith finishes.
 
 Rules:
 
@@ -181,9 +230,9 @@ Rules:
 
 Print brief `•` lines for meaningful file groups, not every edit operation.
 
-### 5. 🌊 Quench — Running verification
+### 5. 🌊 Quench
 
-Print the Quench stage line.
+Emit the concise Quench activity line outside the plan.
 
 Run:
 
@@ -196,9 +245,10 @@ The script discovers common project checks and records its latest log under `.gi
 If Quench fails:
 
 1. print `↻ Quench retry <n>/3`
-2. diagnose the concrete failure; use read-only `pulmu_failure_analyst` only when root-cause analysis is genuinely needed
-3. return to Hammer and give the diagnosis to the same `pulmu_smith`
-4. run Quench again
+2. increment the Run Context `quench` retry counter
+3. diagnose the concrete failure; use read-only `pulmu_failure_analyst` only when root-cause analysis is genuinely needed
+4. update Run Context and the existing plan through Hammer, give the diagnosis to the same `pulmu_smith`, then return both to Quench
+5. run Quench again
 
 Maximum automatic Quench fix attempts: **3**.
 
@@ -208,9 +258,9 @@ On success, print `✓` with the checks that passed.
 
 Quench records PASS evidence tied to the exact verified diff. Any later task-file change invalidates downstream evidence and requires Quench again.
 
-### 6. 🪨 Hone — Reviewing and refining
+### 6. 🪨 Hone
 
-Print the Hone stage line.
+Emit the concise Hone activity line outside the plan.
 
 Run the mode- and risk-specific read-only reviewers from `references/agent-orchestration.md`:
 
@@ -231,9 +281,10 @@ All reviewers are read-only and independent from Smith. The Orchestrator consoli
 If Hone reports high or medium findings:
 
 1. print `↻ Hone refinement <n>/2`
-2. return to Hammer and give the consolidated findings to the same `pulmu_smith`
-3. run Quench again
-4. run Hone again
+2. increment the Run Context `hone` retry counter
+3. update Run Context and the existing plan through Hammer and give the consolidated findings to the same `pulmu_smith`
+4. update both channels to Quench and run it again
+5. update both channels to Hone and run review again
 
 Maximum automatic Hone refinement rounds: **2**.
 
@@ -244,12 +295,14 @@ When review is clear, print `✓ Review: PASS`.
 Record the consolidated non-blocking result for the exact Quench diff:
 
 ```bash
-bash <pulmu-skill-dir>/scripts/metadata.sh hone --result pass
+bash <pulmu-skill-dir>/scripts/metadata.sh hone --result pass --expect-run-id "$RUN_ID"
 ```
 
-### 7. 📦 Ship — Finalizing delivery
+### 7. 📦 Ship
 
-Print the Ship stage line.
+Emit the concise Ship activity line outside the plan.
+
+Set Run Context to `ship` and clear active agents. The deterministic Ship script records `completed` only after the selected delivery succeeds.
 
 Do not spawn a Ship subagent. The Orchestrator uses deterministic Git and GitHub mechanics only.
 
@@ -262,7 +315,8 @@ bash <pulmu-skill-dir>/scripts/metadata.sh delivery \
   --change "<concrete change>" \
   [--change "<concrete change>"] \
   [--risk-reason "<brief reason>"] \
-  [--review-focus "<specific focus>"]
+  [--review-focus "<specific focus>"] \
+  --expect-run-id "$RUN_ID"
 ```
 
 This captures the expected changed paths. Do not add unrelated paths afterward.
@@ -282,6 +336,7 @@ Run:
 ```bash
 bash <pulmu-skill-dir>/scripts/ship.sh \
   --delivery "<local|github>" \
+  --expect-run-id "$RUN_ID" \
   [--draft]
 ```
 
@@ -292,7 +347,7 @@ The script verifies the final-diff evidence, stages only the recorded path manif
 During Ship, use ordinary subordinate progress messages without adding top-level tasks:
 
 ```text
-📦 Ship — Preparing delivery
+📦 Ship
   ● Generating commit and PR metadata
   ● Pushing pulmu/feat/user-search
   ● Applying available GitHub labels
@@ -315,3 +370,5 @@ Use:
 ```
 
 Do not create a PR after failed Quench or blocking Hone findings.
+
+Before printing this stopped block, use Run Context `fail` with the current stage, a stable concise code, and a sanitized explanation. Use `interrupt` instead when the session or user stops a non-failed run.

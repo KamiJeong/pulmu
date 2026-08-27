@@ -18,11 +18,26 @@ TASK="${1:-}"
 pulmu_task_type_valid "$TYPE" || pulmu_die "Ignite task type must be feature, bugfix, refactor, docs, test, or chore"
 
 pulmu_require git
+pulmu_require_python
 ROOT="$(pulmu_repo_root)"
 cd "$ROOT"
 pulmu_load_config "$ROOT"
 
+# Detection is deliberately non-mutating for run.json. Initialization happens
+# only after repository provenance and the Pulmu branch are known.
+RUN_DETECT_OUTPUT="$(pulmu_run_context detect 2>/dev/null || true)"
+
 if [[ -n "$(git status --porcelain)" ]]; then
+  if grep -q '^PULMU_RUN_DETECTED=true$' <<<"$RUN_DETECT_OUTPUT" && grep -q '^PULMU_RUN_STATUS=running$' <<<"$RUN_DETECT_OUTPUT"; then
+    DETECTED_RUN_ID="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$RUN_DETECT_OUTPUT")"
+    printf '⚠ Previous Pulmu run detected: %s at %s on %s\n' \
+      "$DETECTED_RUN_ID" \
+      "$(sed -n 's/^PULMU_RUN_STAGE=//p' <<<"$RUN_DETECT_OUTPUT")" \
+      "$(sed -n 's/^PULMU_RUN_BRANCH=//p' <<<"$RUN_DETECT_OUTPUT")" >&2
+    printf '⚠ Existing run left unchanged because liveness cannot be determined safely\n' >&2
+  elif grep -q '^PULMU_RUN_DETECTED=malformed$' <<<"$RUN_DETECT_OUTPUT"; then
+    printf '⚠ Existing Pulmu Run Context is malformed; it was not changed\n' >&2
+  fi
   pulmu_die "working tree is not clean; commit/stash your existing work before starting Pulmu"
 fi
 
@@ -88,6 +103,13 @@ else
   pulmu_metadata_write slug "$SLUG"
 fi
 
+
+RUN_CONTEXT_OUTPUT="$(pulmu_run_context init \
+  --task-type "$TYPE" --task "$TASK" --base "$BASE" --branch "$BRANCH")"
+RUN_ID="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$RUN_CONTEXT_OUTPUT")"
+[[ -n "$RUN_ID" ]] || pulmu_die "Run Context initialization did not return a runId"
+pulmu_metadata_write run_id "$RUN_ID"
+
 printf 'PULMU_REPO=%s\n' "$ROOT"
 printf 'PULMU_BASE=%s\n' "$BASE"
 printf 'PULMU_BRANCH=%s\n' "$BRANCH"
@@ -95,3 +117,4 @@ printf 'PULMU_TYPE=%s\n' "$TYPE"
 printf 'PULMU_SLUG=%s\n' "$SLUG"
 printf 'PULMU_ORIGIN=%s\n' "$ORIGIN"
 printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"
+printf '%s\n' "$RUN_CONTEXT_OUTPUT"
