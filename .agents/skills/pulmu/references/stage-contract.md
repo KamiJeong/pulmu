@@ -32,6 +32,17 @@ Keep exactly one item `in_progress` while work is active, all future stages `pen
 
 Custom agents are also subordinate work, never plan items. Report them only through concise ordinary progress lines such as `• Explorer mapping relevant modules`, `• Architect defining module boundaries`, or `• 🎨 Pattern — Designer reviewing responsive behavior`.
 
+## Machine-readable synchronization
+
+`update_plan` remains the human progress UI. The current machine-readable state lives in the resolved Git-dir at `pulmu/run.json`; see `run-context.md`. Keep the two transitions adjacent so they do not remain divergent: call `scripts/run-context.sh set-stage <stage> --expect-run-id "$RUN_ID"` as each existing plan item becomes active, then perform the matching `update_plan` change. Do not add Run Context, agents, retries, or Pattern as top-level plan items.
+
+Set the active agent list immediately before spawning a stage's agents and clear it after they finish. Hammer must record `pulmu_smith`. On retries, update both channels through the existing stage sequence and preserve the same run ID:
+
+```text
+Quench failure: increment-retry quench → Hammer → Quench
+Hone finding:  increment-retry hone → Hammer → Quench → Hone
+```
+
 Before advancing normally, mark the current item `completed` and the next item `in_progress` in the same plan update. If Quench fails, return the existing Quench item to `pending`, move the existing Hammer item to `in_progress`, have the same Smith fix the failure, complete Hammer, and move Quench back to `in_progress`. If Hone reports blocking findings, reuse the existing items and same Smith for Hammer → Quench → Hone. Never duplicate retry or reviewer items.
 
 Move Ship to `in_progress` only after Quench passes and Hone has no blocking findings for the exact final diff. Mark Ship `completed` only after the selected delivery finishes: a local commit for local delivery, or commit, push, and a real pull-request URL for GitHub delivery. A successful run finishes with all seven items `completed`.
@@ -90,3 +101,5 @@ Quench → Hone ─finding─→ Hammer → Quench → Hone
 ```
 
 Ship only follows a passing Quench and non-blocking Hone. Task metadata is finalized once after Shape and reused by review and Ship. It always creates a local commit; GitHub push and pull-request creation are optional delivery steps. Git metadata work remains subordinate Ship progress, never additional top-level tasks.
+
+If a run cannot continue, record the terminal state with `run-context.sh fail` before reporting that Pulmu stopped. For user or session interruption, use `interrupt`. Pass only a stable error code and concise safe explanation—never environment values, tokens, complete command output, logs, or model responses.

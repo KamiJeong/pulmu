@@ -84,7 +84,35 @@ When the workflow finishes, print:
 14. If `pulmu_smith` is unavailable, stop at Hammer with a recovery step; do not silently fall back to another writer.
 15. Finalize task metadata once after Shape. Review and Ship consume it instead of re-inferring it.
 
-Read `references/stage-contract.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, `references/review-contract.md`, and `references/delivery-policy.md` before executing the workflow.
+Read `references/stage-contract.md`, `references/run-context.md`, `references/forge-modes.md`, `references/agent-orchestration.md`, `references/review-contract.md`, and `references/delivery-policy.md` before executing the workflow.
+
+## Persistent Run Context
+
+Codex `update_plan` is the human progress UI. `<git-dir>/pulmu/run.json` is the machine-readable runtime state. **update_plan shows the forge to humans. Run Context exposes the forge to machines.** Run Context records existing decisions; it never re-infers metadata or changes the seven-stage workflow.
+
+Ignite creates the file and reports `PULMU_RUN_ID`. Capture that ID as `RUN_ID` for the run. Whenever the active plan stage changes, call the deterministic helper immediately adjacent to the `update_plan` transition:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh set-stage inspect --expect-run-id "$RUN_ID"
+```
+
+Before spawning stage agents, set their canonical names; clear them after all finish:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh set-agents pulmu_explorer pulmu_test_scout --expect-run-id "$RUN_ID"
+# spawn/await agents
+bash <pulmu-skill-dir>/scripts/run-context.sh set-agents --expect-run-id "$RUN_ID"
+```
+
+Use the mode-specific exact agent set. Record `pulmu_smith` throughout Hammer and each Smith fix. Increment `quench` or `hone` before following the existing retry transitions, without creating another run. `metadata.sh finalize` copies canonical Shape metadata, and `ship.sh` records completion only after its existing local/GitHub success gate.
+
+If Pulmu must stop, record a concise safe terminal state first:
+
+```bash
+bash <pulmu-skill-dir>/scripts/run-context.sh fail --code "<STABLE_CODE>" --message "<concise reason>" --expect-run-id "$RUN_ID"
+```
+
+Use `interrupt` for an interrupted session. Never put credentials, environment values, raw logs, full command output, or model responses in Run Context. A previous `running` state is reported and archived as interrupted only when the next Ignite can actually initialize its replacement; it is never resumed automatically. If dirty work blocks Ignite, report the prior run but leave it unchanged because it may still be live.
 
 ## Forge workflow
 
@@ -107,6 +135,8 @@ Capture its reported base branch and Pulmu branch. If Ignite fails, print `✗` 
 
 After success, print concise `✓` results (repository/branch/delivery). Treat `PULMU_DELIVERY=local` as a supported result, not a warning or failure.
 
+Capture `PULMU_RUN_ID` from Ignite. The created state is `running` at `ignite`; all subsequent Run Context mutations in this run use that same ID.
+
 The Orchestrator selects a provisional **Quick**, **Standard**, or **Full** Forge from the task and preflight evidence before Inspect so the correct scouts can be routed. Inspect may reveal evidence that requires escalation to a deeper mode; do not downgrade after mode-specific agents have run.
 
 ### 2. 🔎 Inspect — Exploring the repository
@@ -124,6 +154,8 @@ Run independent read-only scouts in parallel when useful. Give them:
 - the user's exact task
 - base and Pulmu branch names
 - their role-specific request from `references/agent-orchestration.md`
+
+Set the Run Context stage to `inspect`, then set the exact active scout names immediately before spawning them. Clear the active list after all scouts finish.
 
 The Orchestrator consolidates all scout evidence into one Inspect summary. It may perform additional read-only inspection itself, but it does not edit task files. If a required role is unavailable, continue only when the missing evidence can be obtained safely without violating the writer contract; otherwise stop with a recovery step.
 
@@ -159,18 +191,23 @@ Finalize the canonical task metadata once, after the architecture and conditiona
 bash <pulmu-skill-dir>/scripts/metadata.sh finalize \
   --type "<type>" --forge "<quick|standard|full>" --risk "<low|medium|high>" \
   --areas "<comma-separated areas>" --pattern "<true|false>" \
-  --security-review "<true|false>" --compatibility-review "<true|false>"
+  --security-review "<true|false>" --compatibility-review "<true|false>" \
+  --expect-run-id "$RUN_ID"
 ```
 
 Do not change these fields later or re-infer them in Ship. Pattern automatically propagates frontend and design areas; when Pattern is skipped, do not add design metadata without independent repository evidence.
 
 Print `✓ Forge: <mode>` and a terse plan summary.
 
+Keep Run Context at `shape` while Architect and optional Designer work. Set the active list for each actual agent group and clear it afterward. `metadata.sh finalize` synchronizes the already-decided canonical metadata into Run Context.
+
 ### 4. 🔨 Hammer — Implementing
 
 Print the Hammer stage line.
 
 Spawn `pulmu_smith` with the original task, repository instructions, Inspect summary, architecture brief, and Pattern brief when present. Smith is the only task-file writer. Reuse the same Smith agent for all task-related fixes in this run.
+
+Set Run Context to `hammer` and record `pulmu_smith` before spawning or reusing Smith. Clear it only after Smith finishes.
 
 Rules:
 
@@ -196,9 +233,10 @@ The script discovers common project checks and records its latest log under `.gi
 If Quench fails:
 
 1. print `↻ Quench retry <n>/3`
-2. diagnose the concrete failure; use read-only `pulmu_failure_analyst` only when root-cause analysis is genuinely needed
-3. return to Hammer and give the diagnosis to the same `pulmu_smith`
-4. run Quench again
+2. increment the Run Context `quench` retry counter
+3. diagnose the concrete failure; use read-only `pulmu_failure_analyst` only when root-cause analysis is genuinely needed
+4. update Run Context and the existing plan through Hammer, give the diagnosis to the same `pulmu_smith`, then return both to Quench
+5. run Quench again
 
 Maximum automatic Quench fix attempts: **3**.
 
@@ -231,9 +269,10 @@ All reviewers are read-only and independent from Smith. The Orchestrator consoli
 If Hone reports high or medium findings:
 
 1. print `↻ Hone refinement <n>/2`
-2. return to Hammer and give the consolidated findings to the same `pulmu_smith`
-3. run Quench again
-4. run Hone again
+2. increment the Run Context `hone` retry counter
+3. update Run Context and the existing plan through Hammer and give the consolidated findings to the same `pulmu_smith`
+4. update both channels to Quench and run it again
+5. update both channels to Hone and run review again
 
 Maximum automatic Hone refinement rounds: **2**.
 
@@ -244,12 +283,14 @@ When review is clear, print `✓ Review: PASS`.
 Record the consolidated non-blocking result for the exact Quench diff:
 
 ```bash
-bash <pulmu-skill-dir>/scripts/metadata.sh hone --result pass
+bash <pulmu-skill-dir>/scripts/metadata.sh hone --result pass --expect-run-id "$RUN_ID"
 ```
 
 ### 7. 📦 Ship — Finalizing delivery
 
 Print the Ship stage line.
+
+Set Run Context to `ship` and clear active agents. The deterministic Ship script records `completed` only after the selected delivery succeeds.
 
 Do not spawn a Ship subagent. The Orchestrator uses deterministic Git and GitHub mechanics only.
 
@@ -262,7 +303,8 @@ bash <pulmu-skill-dir>/scripts/metadata.sh delivery \
   --change "<concrete change>" \
   [--change "<concrete change>"] \
   [--risk-reason "<brief reason>"] \
-  [--review-focus "<specific focus>"]
+  [--review-focus "<specific focus>"] \
+  --expect-run-id "$RUN_ID"
 ```
 
 This captures the expected changed paths. Do not add unrelated paths afterward.
@@ -282,6 +324,7 @@ Run:
 ```bash
 bash <pulmu-skill-dir>/scripts/ship.sh \
   --delivery "<local|github>" \
+  --expect-run-id "$RUN_ID" \
   [--draft]
 ```
 
@@ -315,3 +358,5 @@ Use:
 ```
 
 Do not create a PR after failed Quench or blocking Hone findings.
+
+Before printing this stopped block, use Run Context `fail` with the current stage, a stable concise code, and a sanitized explanation. Use `interrupt` instead when the session or user stops a non-failed run.

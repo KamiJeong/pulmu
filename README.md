@@ -122,10 +122,46 @@ Every mode still goes through **all seven stages**. Only the depth changes.
 
 Pulmu uses Luna/medium for narrow repetitive inspection, Terra/medium-or-high for exploration and review, and Sol/high for architecture, design, implementation, and critical review. Only explicitly high-risk authentication, authorization, payment, destructive migration, data-loss, cryptography, concurrency, or public-API-breaking work may escalate Architect or Security Reviewer to `xhigh`; the default workflow never uses `max`.
 
+## Persistent Run Context
+
+Pulmu exposes progress to people and machines without changing the seven-stage workflow:
+
+```text
+$pulmu
+   │
+   ├── update_plan
+   │     └─ Human progress UI
+   │
+   └── Pulmu Run Context
+         └─ Machine-readable workflow state
+                 │
+                 ├─ Codex
+                 ├─ future resume
+                 └─ Observatory
+```
+
+> **update_plan shows the forge to humans. Run Context exposes the forge to machines.**
+
+Ignite creates `<git-dir>/pulmu/run.json` (normally `.git/pulmu/run.json`). Because it is Git metadata, it never enters the working tree or a commit. The schema records workflow and run identity, lifecycle status, sanitized task metadata, Forge/risk/areas/Pattern decisions, the current seven-stage forge stage, active agents, branch and commit, retry counters, timestamps, concise errors, and a validated PR URL when available. Completed, failed, and interrupted snapshots are retained under `<git-dir>/pulmu/runs/`.
+
+Stage and agent changes are deterministic helper mutations coordinated with the existing `update_plan` transitions. Retry loops keep one run ID and record the real sequences (`Quench → Hammer → Quench` and `Hone → Hammer → Quench → Hone`). Canonical Shape metadata is copied rather than re-inferred. Local delivery completes after its reviewed commit; GitHub delivery completes only after a real PR is created or reused.
+
+If Ignite can safely initialize a replacement and finds a previous `running` state, it reports and archives it as interrupted before creating a new run; it never resumes automatically. When a dirty working tree blocks Ignite, the existing run is reported but left unchanged because it may still have a live Smith. State updates use validation, locking, owner-only permissions, and atomic writes. Malformed state fails closed for ordinary mutations and is quarantined only when a new Ignite explicitly initializes a run.
+
+Inspect the current state as JSON or a concise developer view:
+
+```bash
+bash .agents/skills/pulmu/scripts/run-context.sh show
+bash .agents/skills/pulmu/scripts/pulmu-status.sh
+```
+
+See [the Run Context contract](./.agents/skills/pulmu/references/run-context.md).
+
 ## Requirements
 
 - Codex CLI with Skills support
 - Git
+- Python 3.10 or newer (standard library only, for Run Context)
 - a Git repository
 - the project's own runtime/toolchain for Quench (Node/Bun/Python/Rust/Go etc.)
 
@@ -252,12 +288,16 @@ pulmu/
 │   └── skills/
 │       └── pulmu/
 │           ├── SKILL.md
+│           ├── VERSION
 │           ├── agents/
 │           │   └── openai.yaml
 │           ├── scripts/
 │           │   ├── common.sh
 │           │   ├── ignite.sh
 │           │   ├── metadata.sh
+│           │   ├── run-context.py
+│           │   ├── run-context.sh
+│           │   ├── pulmu-status.sh
 │           │   ├── quench.sh
 │           │   └── ship.sh
 │           └── references/
@@ -265,6 +305,7 @@ pulmu/
 │               ├── delivery-policy.md
 │               ├── design-pass.md
 │               ├── forge-modes.md
+│               ├── run-context.md
 │               ├── stage-contract.md
 │               └── review-contract.md
 ├── .codex/
@@ -315,7 +356,7 @@ Run Pulmu's local integration tests:
 ./tests/test.sh
 ```
 
-The tests do not call a model. They verify shell and TOML syntax, the exact agent inventory and writer boundary, skill/reference consistency, metadata propagation, base and branch policy, safe configuration, Quench/Hone delivery gates, local-only delivery, label handling, draft policy, and GitHub delivery using a bare Git remote plus a fake `gh` command.
+The tests do not call a model. They verify shell and TOML syntax, the exact agent inventory and writer boundary, skill/reference consistency, metadata propagation, base and branch policy, safe configuration, Quench/Hone delivery gates, local-only delivery, label handling, draft policy, and GitHub delivery using a bare Git remote plus a fake `gh` command. Run Context coverage includes schema creation, stage/agent synchronization, both retry paths, local and GitHub completion, failure/interruption, stale and malformed state, credential redaction, atomic concurrent updates, history, and linked worktrees.
 
 ## License
 

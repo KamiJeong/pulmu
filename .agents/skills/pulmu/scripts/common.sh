@@ -3,6 +3,11 @@ set -euo pipefail
 
 pulmu_die() { printf '✗ %s\n' "$*" >&2; exit 1; }
 pulmu_require() { command -v "$1" >/dev/null 2>&1 || pulmu_die "required command not found: $1"; }
+pulmu_require_python() {
+  command -v python3 >/dev/null 2>&1 || pulmu_die "Python 3.10+ is required for Pulmu Run Context"
+  python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1 ||
+    pulmu_die "Python 3.10+ is required for Pulmu Run Context"
+}
 pulmu_repo_root() { git rev-parse --show-toplevel 2>/dev/null || pulmu_die "not inside a Git repository"; }
 
 pulmu_git_dir() {
@@ -188,7 +193,7 @@ pulmu_unique_branch() {
 
 pulmu_metadata_dir() { printf '%s/pulmu-metadata\n' "$(pulmu_git_dir)"; }
 pulmu_metadata_key_valid() {
-  case "$1" in version|status|task|task_type|forge|risk|areas|pattern|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|quench_fingerprint|hone_fingerprint|delivery_fingerprint) return 0 ;; *) return 1 ;; esac
+  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|quench_fingerprint|hone_fingerprint|delivery_fingerprint) return 0 ;; *) return 1 ;; esac
 }
 pulmu_metadata_write() {
   local key="$1" value="$2" dir tmp
@@ -219,4 +224,10 @@ pulmu_evidence_matches() {
   local key="$1" expected actual
   expected="$(pulmu_metadata_read "$key" 2>/dev/null || true)"; [[ -n "$expected" ]] || return 1
   actual="$(pulmu_changed_fingerprint)"; [[ "$expected" == "$actual" ]]
+}
+
+pulmu_run_context() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  bash "$script_dir/run-context.sh" "$@"
 }

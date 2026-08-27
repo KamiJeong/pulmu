@@ -9,6 +9,8 @@ coverage/
 dist/
 build/
 *.log
+__pycache__/
+*.py[cod]
 
 # Editors and operating systems
 .DS_Store
