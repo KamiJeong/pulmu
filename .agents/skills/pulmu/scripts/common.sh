@@ -20,11 +20,26 @@ pulmu_git_dir() {
 
 pulmu_origin_url() { git remote get-url origin 2>/dev/null || true; }
 
+pulmu_github_repo_from_url() {
+  local url="$1" host path
+  case "$url" in
+    git@*:*/*) host="${url#git@}"; host="${host%%:*}"; path="${url#*:}" ;;
+    ssh://git@*/*) host="${url#ssh://git@}"; host="${host%%/*}"; path="${url#ssh://git@*/}" ;;
+    https://*/*|http://*/*) host="${url#*://}"; host="${host%%/*}"; path="${url#*://*/}" ;;
+    *) return 1 ;;
+  esac
+  path="${path%/}"; path="${path%.git}"
+  [[ "$host" =~ ^[A-Za-z0-9.-]+$ && "$path" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] || return 1
+  printf '%s/%s\n' "$host" "$path"
+}
+
 pulmu_github_ready() {
-  [[ -n "$(pulmu_origin_url)" ]] || return 1
+  local repo host
+  repo="$(pulmu_github_repo)" || return 1
+  if [[ "$repo" == */*/* ]]; then host="${repo%%/*}"; else host="github.com"; fi
   command -v gh >/dev/null 2>&1 || return 1
-  gh auth status >/dev/null 2>&1 || return 1
-  gh repo view --json nameWithOwner >/dev/null 2>&1
+  gh auth status --hostname "$host" >/dev/null 2>&1 || return 1
+  gh repo view "$repo" --json nameWithOwner >/dev/null 2>&1
 }
 
 pulmu_trim() {
@@ -114,9 +129,10 @@ pulmu_instruction_base_branch() {
 }
 
 pulmu_github_default_branch() {
-  local branch head
-  if command -v gh >/dev/null 2>&1; then
-    branch="$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)"
+  local branch head repo
+  repo="$(pulmu_github_repo 2>/dev/null || true)"
+  if command -v gh >/dev/null 2>&1 && [[ -n "$repo" ]]; then
+    branch="$(gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)"
     if [[ -n "$branch" && "$branch" != "null" ]] && pulmu_ref_exists "$branch"; then printf '%s\n' "$branch"; return 0; fi
   fi
   head="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
@@ -193,12 +209,14 @@ pulmu_unique_branch() {
 
 pulmu_metadata_dir() { printf '%s/pulmu-metadata\n' "$(pulmu_git_dir)"; }
 pulmu_metadata_key_valid() {
-  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|quench_fingerprint|hone_fingerprint|delivery_fingerprint) return 0 ;; *) return 1 ;; esac
+  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|candidate_tree|candidate_head|candidate_branch|candidate_base|candidate_base_head|quench_fingerprint|hone_fingerprint|delivery_fingerprint|github_repo) return 0 ;; *) return 1 ;; esac
 }
 pulmu_metadata_write() {
   local key="$1" value="$2" dir tmp
   pulmu_metadata_key_valid "$key" || pulmu_die "invalid metadata key: $key"
-  [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || pulmu_die "metadata value for $key must be one line"
+  if [[ "$key" != "task" ]]; then
+    [[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || pulmu_die "metadata value for $key must be one line"
+  fi
   dir="$(pulmu_metadata_dir)"; mkdir -p "$dir"; tmp="$dir/.$key.$$"
   printf '%s\n' "$value" > "$tmp"; mv "$tmp" "$dir/$key"
 }
@@ -206,19 +224,42 @@ pulmu_metadata_read() {
   local key="$1" dir reply
   pulmu_metadata_key_valid "$key" || pulmu_die "invalid metadata key: $key"
   dir="$(pulmu_metadata_dir)"; [[ -f "$dir/$key" ]] || return 1
-  IFS= read -r reply < "$dir/$key" || true; printf '%s\n' "$reply"
+  if [[ "$key" == "task" ]]; then cat "$dir/$key"; else IFS= read -r reply < "$dir/$key" || true; printf '%s\n' "$reply"; fi
 }
 
 pulmu_changed_paths() {
   # Git emits each list deterministically; tracked and untracked sets cannot overlap.
   { git diff --name-only -z HEAD; git ls-files --others --exclude-standard -z; }
 }
+pulmu_candidate_tree() (
+  local index tree
+  if [[ -f .gitmodules ]]; then
+    git submodule foreach --quiet --recursive 'test -z "$(git status --porcelain --untracked-files=all)"' ||
+      pulmu_die "candidate contains dirty or untracked submodule content"
+  fi
+  index="$(mktemp "$(pulmu_git_dir)/pulmu-candidate-index.XXXXXX")"
+  rm -f "$index"
+  trap 'rm -f "$index"' EXIT HUP INT TERM
+  if GIT_INDEX_FILE="$index" git read-tree HEAD && GIT_INDEX_FILE="$index" git add -A -- :/; then
+    tree="$(GIT_INDEX_FILE="$index" git write-tree)"
+  else
+    return 1
+  fi
+  printf '%s\n' "$tree"
+)
+pulmu_candidate_identity() {
+  local run_id="$1" branch="$2" base="$3" base_head="$4" head="$5" tree="$6"
+  printf 'run=%s\nbranch=%s\nbase=%s\nbase_head=%s\nhead=%s\ntree=%s\n' "$run_id" "$branch" "$base" "$base_head" "$head" "$tree" | git hash-object --stdin
+}
 pulmu_changed_fingerprint() {
-  local path
-  {
-    git diff --binary HEAD
-    while IFS= read -r -d '' path; do printf 'untracked:%s:' "$path"; git hash-object -- "$path"; done < <(git ls-files --others --exclude-standard -z)
-  } | git hash-object --stdin
+  local run_id branch base base_head head tree
+  run_id="$(pulmu_metadata_read run_id 2>/dev/null || true)"
+  branch="$(git branch --show-current)"
+  base="$(pulmu_metadata_read base_branch 2>/dev/null || true)"
+  base_head="$(git rev-parse "$base")"
+  head="$(git rev-parse HEAD)"
+  tree="$(pulmu_candidate_tree)"
+  pulmu_candidate_identity "$run_id" "$branch" "$base" "$base_head" "$head" "$tree"
 }
 pulmu_evidence_matches() {
   local key="$1" expected actual
@@ -230,4 +271,28 @@ pulmu_run_context() {
   local script_dir
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   bash "$script_dir/run-context.sh" "$@"
+}
+
+pulmu_github_repo() {
+  local fetch_url push_url fetch_repo push_repo fetch_key push_key
+  fetch_url="$(git remote get-url --all origin 2>/dev/null)" || return 1
+  push_url="$(git remote get-url --push --all origin 2>/dev/null)" || return 1
+  [[ -n "$fetch_url" && "$fetch_url" != *$'\n'* && -n "$push_url" && "$push_url" != *$'\n'* ]] || return 1
+  fetch_repo="$(pulmu_github_repo_from_url "$fetch_url")" || return 1
+  push_repo="$(pulmu_github_repo_from_url "$push_url")" || return 1
+  fetch_key="$(printf '%s' "$fetch_repo" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  push_key="$(printf '%s' "$push_repo" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  [[ "$fetch_key" == "$push_key" ]] || return 1
+  printf '%s\n' "$fetch_repo"
+}
+
+pulmu_github_pr_url_matches() {
+  local url="$1" repo="$2" prefix number url_key prefix_key
+  prefix="https://$repo/pull/"
+  url_key="$(printf '%s' "$url" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  prefix_key="$(printf '%s' "$prefix" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  [[ "$url_key" == "$prefix_key"* ]] || return 1
+  number="${url#"$prefix"}"
+  if [[ "$number" == "$url" ]]; then number="${url_key#"$prefix_key"}"; fi
+  [[ "$number" =~ ^[1-9][0-9]*$ ]]
 }

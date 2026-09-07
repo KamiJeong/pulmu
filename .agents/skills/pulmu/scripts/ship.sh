@@ -34,6 +34,7 @@ METADATA_DIR="$(pulmu_metadata_dir)"
 [[ "$(pulmu_metadata_read run_id 2>/dev/null || true)" == "$EXPECT_RUN_ID" ]] || pulmu_die "Ship metadata runId changed; refusing stale operation"
 RUN_DETECT_OUTPUT="$(pulmu_run_context detect 2>/dev/null || true)"
 [[ "$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$RUN_DETECT_OUTPUT")" == "$EXPECT_RUN_ID" ]] || pulmu_die "Run Context runId changed; refusing stale Ship operation"
+RUN_STATUS="$(sed -n 's/^PULMU_RUN_STATUS=//p' <<<"$RUN_DETECT_OUTPUT")"
 [[ "$(pulmu_metadata_read status 2>/dev/null || true)" == "final" ]] || pulmu_die "Ship requires finalized Pulmu task metadata"
 BRANCH="$(git branch --show-current)"
 [[ "$BRANCH" == "$(pulmu_metadata_read branch)" ]] || pulmu_die "Ship branch does not match finalized metadata: $BRANCH"
@@ -51,7 +52,6 @@ if [[ -n "$TITLE_OVERRIDE" && "$TITLE_OVERRIDE" != "$TITLE" ]]; then
   pulmu_die "Ship title must match the generated delivery metadata"
 fi
 [[ -f "$METADATA_DIR/changes" && -f "$METADATA_DIR/paths.z" ]] || pulmu_die "Ship delivery metadata is incomplete"
-pulmu_run_context set-stage ship --expect-run-id "$EXPECT_RUN_ID" >/dev/null
 SUPPLEMENTAL_BODY_FILE="$BODY_FILE"
 if [[ -n "$SUPPLEMENTAL_BODY_FILE" ]]; then
   [[ -f "$SUPPLEMENTAL_BODY_FILE" ]] || pulmu_die "supplemental PR body file does not exist: $SUPPLEMENTAL_BODY_FILE"
@@ -61,21 +61,55 @@ fi
 
 if [[ "$DELIVERY" == "auto" ]]; then
   if [[ "$PULMU_GITHUB_CREATE_PR" == "true" ]] && pulmu_github_ready; then DELIVERY="github"; else DELIVERY="local"; fi
-elif [[ "$DELIVERY" == "github" ]]; then
+fi
+if [[ "$DELIVERY" == "github" ]]; then
   [[ "$PULMU_GITHUB_CREATE_PR" == "true" ]] || pulmu_die "GitHub PR delivery is disabled by .pulmu/config.toml"
-  [[ -n "$(pulmu_origin_url)" ]] || pulmu_die "GitHub delivery requires an origin remote"
+  TARGET_GH_REPO="$(pulmu_github_repo)" || pulmu_die "GitHub delivery requires one matching supported origin fetch and push URL"
+  TARGET_GH_HOST="${TARGET_GH_REPO%%/*}"; TARGET_GH_NAME="${TARGET_GH_REPO#*/}"
   pulmu_require gh
-  gh auth status >/dev/null 2>&1 || pulmu_die "GitHub delivery requires an authenticated GitHub CLI; run: gh auth login"
-  gh repo view --json nameWithOwner >/dev/null 2>&1 || pulmu_die "origin is not an accessible GitHub repository"
+  gh auth status --hostname "$TARGET_GH_HOST" >/dev/null 2>&1 || pulmu_die "GitHub delivery requires an authenticated GitHub CLI; run: gh auth login"
+  VIEWED_REPO="$(gh repo view "$TARGET_GH_REPO" --json nameWithOwner --jq '.nameWithOwner' 2>/dev/null || true)"
+  viewed_repo_key="$(printf '%s' "$VIEWED_REPO" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  target_name_key="$(printf '%s' "$TARGET_GH_NAME" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  [[ "$viewed_repo_key" == "$target_name_key" ]] || pulmu_die "origin is not the requested accessible GitHub repository: $TARGET_GH_REPO"
+  recorded_repo="$(pulmu_metadata_read github_repo 2>/dev/null || true)"
+  recorded_repo_key="$(printf '%s' "$recorded_repo" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  target_repo_key="$(printf '%s' "$TARGET_GH_REPO" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
+  [[ -z "$recorded_repo" || "$recorded_repo_key" == "$target_repo_key" ]] || pulmu_die "GitHub delivery target changed after it was recorded"
+  pulmu_metadata_write github_repo "$TARGET_GH_REPO"
 fi
 
 SHIP_STATE="$GIT_DIR/pulmu-ship-commit"
 RESUME=0
+CANDIDATE_TREE="$(pulmu_metadata_read candidate_tree 2>/dev/null || true)"
+CANDIDATE_HEAD="$(pulmu_metadata_read candidate_head 2>/dev/null || true)"
+STORED_COMMIT=""
 if [[ -f "$SHIP_STATE" ]]; then
-  IFS= read -r STORED_COMMIT < "$SHIP_STATE" || true
-  if [[ -n "$STORED_COMMIT" && "$(git rev-parse HEAD)" == "$STORED_COMMIT" && -z "$(git status --porcelain)" ]]; then
-    RESUME=1
+  marker_run="$(sed -n '1p' "$SHIP_STATE")"; marker_branch="$(sed -n '2p' "$SHIP_STATE")"
+  marker_base="$(sed -n '3p' "$SHIP_STATE")"; STORED_COMMIT="$(sed -n '4p' "$SHIP_STATE")"
+  marker_tree="$(sed -n '5p' "$SHIP_STATE")"
+  if [[ "$marker_run" == "$EXPECT_RUN_ID" && "$marker_branch" == "$BRANCH" && "$marker_base" == "$BASE" && \
+        "$marker_tree" == "$CANDIDATE_TREE" && -n "$STORED_COMMIT" && "$(git rev-parse HEAD)" == "$STORED_COMMIT" && \
+        -z "$(git status --porcelain)" ]]; then RESUME=1; fi
+fi
+if [[ "$RESUME" -eq 0 && -n "$CANDIDATE_TREE" && -n "$CANDIDATE_HEAD" && -z "$(git status --porcelain)" ]]; then
+  head_now="$(git rev-parse HEAD)"
+  if [[ "$head_now" != "$CANDIDATE_HEAD" && "$(git rev-parse "$head_now^{tree}" 2>/dev/null || true)" == "$CANDIDATE_TREE" && \
+        "$(git rev-parse "$head_now^" 2>/dev/null || true)" == "$CANDIDATE_HEAD" ]]; then
+    STORED_COMMIT="$head_now"; RESUME=1
+    marker_tmp="$SHIP_STATE.$$"
+    printf '%s\n%s\n%s\n%s\n%s\n' "$EXPECT_RUN_ID" "$BRANCH" "$BASE" "$STORED_COMMIT" "$CANDIDATE_TREE" > "$marker_tmp"
+    mv "$marker_tmp" "$SHIP_STATE"
   fi
+fi
+if [[ "$RUN_STATUS" == "failed" || "$RUN_STATUS" == "interrupted" ]]; then
+  [[ "$RESUME" -eq 1 ]] || pulmu_die "terminal Ship recovery does not match the recorded reviewed commit"
+  pulmu_run_context recover-ship --commit "$STORED_COMMIT" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+elif [[ "$RUN_STATUS" != "running" && "$RUN_STATUS" != "completed" ]]; then
+  pulmu_die "Ship cannot continue from Run Context status: $RUN_STATUS"
+fi
+if [[ "$RESUME" -eq 0 ]]; then
+  pulmu_run_context set-stage ship --expect-run-id "$EXPECT_RUN_ID" >/dev/null
 fi
 
 if [[ "$RESUME" -eq 0 ]]; then
@@ -85,14 +119,26 @@ if [[ "$RESUME" -eq 0 ]]; then
   PATHS=()
   while IFS= read -r -d '' path; do PATHS+=("$path"); done < "$METADATA_DIR/paths.z"
   [[ "${#PATHS[@]}" -gt 0 ]] || pulmu_die "there are no expected paths to ship"
+  git diff --cached --quiet || pulmu_die "Ship found pre-existing staged changes and left the index unchanged; unstage them before retrying"
+  [[ -n "$CANDIDATE_TREE" && "$CANDIDATE_TREE" == "$(pulmu_candidate_tree)" ]] || pulmu_die "Ship candidate tree does not match Quench evidence"
   git add -- "${PATHS[@]}"
   git diff --cached --quiet && pulmu_die "there are no staged changes to commit"
+  [[ "$(git write-tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "staged tree contains content outside the verified candidate"
   git commit -m "$TITLE"
   COMMIT="$(git rev-parse HEAD)"
-  printf '%s\n' "$COMMIT" > "$SHIP_STATE"
+  [[ "$(git rev-parse "$COMMIT^{tree}")" == "$CANDIDATE_TREE" ]] || pulmu_die "commit hooks changed the reviewed candidate; Quench must run again"
+  [[ "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "commit hooks changed the working tree; Quench must run again"
+  marker_tmp="$SHIP_STATE.$$"
+  printf '%s\n%s\n%s\n%s\n%s\n' "$EXPECT_RUN_ID" "$BRANCH" "$BASE" "$COMMIT" "$CANDIDATE_TREE" > "$marker_tmp"
+  mv "$marker_tmp" "$SHIP_STATE"
 else
   COMMIT="$STORED_COMMIT"
 fi
+
+# Validate the exact reviewed commit and its ancestry before any delivery can
+# succeed or reach an external remote. This applies equally to new commits and
+# recovered commits because hooks can advance HEAD without changing its tree.
+pulmu_run_context validate-ship --commit "$COMMIT" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
 
 printf 'PULMU_COMMIT=%s\n' "$COMMIT"
 printf 'PULMU_BRANCH=%s\n' "$BRANCH"
@@ -114,7 +160,7 @@ for area in "${AREAS[@]:0:3}"; do DESIRED_LABELS+=("area: $area"); done
 
 if [[ "$PULMU_GITHUB_APPLY_LABELS" == "true" ]]; then
   LABEL_FILE="$GIT_DIR/pulmu-existing-labels"
-  if gh label list --limit 1000 --json name --jq '.[].name' > "$LABEL_FILE"; then
+  if gh label list --repo "$TARGET_GH_REPO" --limit 1000 --json name --jq '.[].name' > "$LABEL_FILE"; then
     LABEL_DISCOVERY="available"
     for label in "${DESIRED_LABELS[@]}"; do
       if grep -Fqx -- "$label" "$LABEL_FILE"; then
@@ -123,7 +169,7 @@ if [[ "$PULMU_GITHUB_APPLY_LABELS" == "true" ]]; then
         case "$label" in
           pulmu) color="BFD4F2" ;; type:*) color="0E8A16" ;; forge:*) color="5319E7" ;; risk:*) color="D93F0B" ;; area:*) color="1D76DB" ;; *) color="EDEDED" ;;
         esac
-        if gh label create "$label" --color "$color" --description "Managed by Pulmu delivery policy"; then
+        if gh label create "$label" --repo "$TARGET_GH_REPO" --color "$color" --description "Managed by Pulmu delivery policy"; then
           AVAILABLE_LABELS+=("$label")
         else
           MISSING_LABELS+=("$label")
@@ -181,26 +227,26 @@ if [[ "$DELIVERY" == "github" ]]; then
 fi
 [[ -f "$BODY_FILE" ]] || pulmu_die "PR body file does not exist: $BODY_FILE"
 
-if ! PR_URL="$(gh pr list --head "$BRANCH" --base "$BASE" --state open --json url --jq '.[0].url' 2>/dev/null)"; then
+if ! PR_URL="$(gh pr list --repo "$TARGET_GH_REPO" --head "$BRANCH" --base "$BASE" --state open --json url --jq '.[0].url' 2>/dev/null)"; then
   pulmu_die "could not determine whether a pull request already exists for $BRANCH -> $BASE"
 fi
 if [[ -z "$PR_URL" || "$PR_URL" == "null" ]]; then
-  args=(pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE")
+  args=(pr create --repo "$TARGET_GH_REPO" --base "$BASE" --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE")
   FORGE="$(pulmu_metadata_read forge)"; RISK="$(pulmu_metadata_read risk)"
   if [[ "$DRAFT" -eq 1 || ( "$FORGE" == "full" && "$RISK" == "high" && "$PULMU_GITHUB_FULL_FORGE_DRAFT" == "true" ) ]]; then args+=(--draft); fi
   PR_OUTPUT="$(gh "${args[@]}")"
   PR_URL="$(printf '%s\n' "$PR_OUTPUT" | grep -Eo 'https://[^[:space:]]+/pull/[0-9]+' | tail -n 1 || true)"
 else
-  [[ "$PR_URL" =~ ^https://[^[:space:]]+/pull/[0-9]+$ ]] || pulmu_die "GitHub returned an invalid existing pull-request URL"
-  gh pr edit "$PR_URL" --title "$TITLE" --body-file "$BODY_FILE" >/dev/null
+  pulmu_github_pr_url_matches "$PR_URL" "$TARGET_GH_REPO" || pulmu_die "GitHub returned a pull request outside the origin repository"
+  gh pr edit "$PR_URL" --repo "$TARGET_GH_REPO" --title "$TITLE" --body-file "$BODY_FILE" >/dev/null
 fi
-[[ "$PR_URL" =~ ^https://[^[:space:]]+/pull/[0-9]+$ ]] || pulmu_die "GitHub delivery did not return a real pull-request URL"
+pulmu_github_pr_url_matches "$PR_URL" "$TARGET_GH_REPO" || pulmu_die "GitHub delivery did not return a pull request in the origin repository"
 PR_NUMBER="${PR_URL##*/}"
 
 APPLIED=0
 if [[ "${#AVAILABLE_LABELS[@]}" -gt 0 ]]; then
   for label in "${AVAILABLE_LABELS[@]}"; do
-    if gh pr edit "$PR_URL" --add-label "$label" >/dev/null; then
+    if gh pr edit "$PR_URL" --repo "$TARGET_GH_REPO" --add-label "$label" >/dev/null; then
       APPLIED=$((APPLIED + 1))
     else
       UNAPPLIED_LABELS+=("$label")

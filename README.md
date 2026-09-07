@@ -94,8 +94,8 @@ The banner is not a plan item or an additional stage.
 | 🔎 **Inspect** | map relevant code, conventions, tests, dependencies, and risk | read-only Scouts |
 | 📐 **Shape** | define acceptance, boundaries, verification, and conditional design intent | Orchestrator + read-only Architect/Designer |
 | 🔨 **Hammer** | implement the smallest complete source and test change | `pulmu_smith` only |
-| 🌊 **Quench** | run available lint, typecheck, test, and build checks | deterministic script + conditional Analyst |
-| 🪨 **Hone** | independently review correctness, tests, security, compatibility, and design | read-only Reviewers |
+| 🌊 **Quench** | run the concrete, bounded verification plan selected in Shape | deterministic script + conditional Analyst |
+| 🪨 **Hone** | independently review the exact candidate with required structured receipts | read-only Reviewers |
 | 📦 **Ship** | create the reviewed commit and complete local or GitHub delivery | deterministic script + Orchestrator |
 
 Every Forge Mode passes through all seven stages. Modes change review and inspection depth, not the stage vocabulary.
@@ -131,7 +131,9 @@ Quench failure  → Hammer → Quench
 Hone finding    → Hammer → Quench → Hone
 ```
 
-Ship remains blocked until Quench passes and Hone has no unresolved high- or medium-severity findings for the exact final diff.
+Retry admission is deterministic and run-wide: at most three Quench fixes and two Hone refinements. Recording a retry atomically returns to Hammer and invalidates downstream evidence.
+
+Ship remains blocked until Quench passes and every required fresh reviewer returns a complete, matching receipt with no unresolved high- or medium-severity finding for the exact candidate.
 
 ## Persistent Run Context
 
@@ -163,7 +165,7 @@ Ignite creates `<git-dir>/pulmu/run.json`, normally `.git/pulmu/run.json`. The f
 
 Stage changes update Run Context immediately beside the matching native plan transition. Updates use strict validation, expected-run guards, file locking, owner-only permissions, and atomic replacement. Canonical Shape metadata is copied rather than re-inferred.
 
-Terminal snapshots are retained under `<git-dir>/pulmu/runs/<runId>.json`. A replacement Ignite reports and archives an earlier running state only when it can safely initialize the replacement; it never resumes automatically. If a dirty worktree blocks Ignite, the earlier run is reported but preserved because it may still be live. Malformed state fails closed for normal mutations and is quarantined only during explicit new-run initialization.
+Terminal snapshots are retained under `<git-dir>/pulmu/runs/<runId>.json`. A running state blocks a replacement Ignite until it is explicitly completed, failed, or interrupted. A fresh task after a terminal run gets a distinct run ID, prompt, branch, and evidence. If a dirty worktree blocks Ignite, the earlier run is reported but preserved because it may still be live. Malformed state fails closed for normal mutations and is quarantined only during explicit new-run initialization.
 
 Inspect current state with either helper:
 
@@ -186,7 +188,7 @@ pulmu/fix/login-redirect
 pulmu/docs/api-guide
 ```
 
-Inspect and Shape finalize task metadata once. That same record routes reviewers and drives the commit, PR body, draft decision, and bounded labels. Ship stages only the recorded path manifest and requires exact-diff Quench and Hone evidence.
+Inspect and Shape finalize task metadata and a concrete working-directory/command verification plan once. That same record routes reviewers and drives the commit, PR body, draft decision, and bounded labels. Quench binds evidence to the run, branch, base, HEAD, and candidate tree. Smith leaves the real index unchanged; Ship rejects any pre-staged content and requires the staged and committed trees to equal the reviewed candidate.
 
 Local delivery completes after the reviewed commit. GitHub delivery completes only after the branch is pushed and a real pull-request URL is created or reused. Pulmu never merges or force-pushes, and it leaves CODEOWNERS and repository automation in charge of reviewer assignment.
 
@@ -218,6 +220,7 @@ Pulmu selects GitHub delivery only when all of these checks succeed:
 
 - `github.create_pr` is enabled (the default)
 - an `origin` remote exists
+- its single fetch and push URLs resolve to the same GitHub repository
 - GitHub CLI (`gh`) is installed and authenticated
 - `gh repo view` can resolve the current repository
 
@@ -239,7 +242,7 @@ When the checklist is ready, Ignite selects `PULMU_DELIVERY=github`. If GitHub w
 
 ### Fork and upstream limitation
 
-GitHub delivery currently pushes to `origin` and opens or reuses the pull request in that same repository. A split setup where `origin` is a personal fork and `upstream` is the canonical repository is not yet automated as a cross-repository pull request. In that setup, either make the intended target repository the writable `origin`, or use local delivery and manually push the branch and open the fork-to-upstream pull request.
+GitHub delivery pins every CLI operation and the validated PR URL to the repository resolved from matching `origin` fetch/push URLs. A split setup where `origin` is a personal fork and `upstream` is the canonical repository is not automated as a cross-repository pull request. In that setup, either make the intended target repository the writable `origin`, or use local delivery and manually push the branch and open the fork-to-upstream pull request.
 
 ### Pull requests and labels
 
@@ -252,7 +255,7 @@ Labels use exact repository matches such as `pulmu`, `type: feature`, `forge: st
 Ship creates the reviewed commit before it pushes or creates the pull request. If GitHub delivery stops partway through, inspect both the persisted run and Git state:
 
 ```bash
-bash .agents/skills/pulmu/scripts/pulmu-status.sh
+bash ~/.agents/skills/pulmu/scripts/pulmu-status.sh  # adjust for a custom install location
 git status --short --branch
 git log -1 --oneline
 gh pr list --head "$(git branch --show-current)"
@@ -267,7 +270,7 @@ git remote -v
 gh repo view
 ```
 
-If the original Codex session is still active, ask it to retry Ship after the external problem is fixed. Ship records the delivered commit in Git metadata and resumes a matching clean delivery without creating a duplicate commit. If that session has ended, confirm that `pulmu-status.sh` reports `failed` or `interrupted` and that the worktree is clean before rerunning the same `$pulmu` task. Do not manually delete `.git/pulmu` or `.git/pulmu-*` recovery metadata.
+Ask the Orchestrator to retry Ship after the external problem is fixed. Ship resumes only the same run's recorded commit, branch, base, and candidate from a clean worktree, even when that Ship was marked failed or interrupted; it does not create a duplicate commit. Do not start a fresh Ignite for delivery recovery, and do not manually delete `.git/pulmu` or `.git/pulmu-*` recovery metadata.
 
 ## Installation and demo
 
@@ -319,7 +322,7 @@ An authenticated GitHub CLI can create a private demo repository as well:
 - every other custom agent is read-only
 - unrelated dirty work blocks Ignite and is never stashed or discarded
 - Quench must pass before Ship
-- unresolved high/medium Hone findings block Ship
+- every required reviewer must return a complete matching receipt; unresolved high/medium Hone findings block Ship
 - task metadata is finalized once and reused
 - GitHub delivery requires a real PR URL
 - no merge, force push, or destructive cleanup

@@ -81,12 +81,16 @@ bash <skill>/scripts/run-context.sh set-agents --expect-run-id "$RUN_ID"
 
 The expected-run-ID guard prevents a delayed agent or command from mutating a newer run. Metadata and Ship operations require the ID returned by Ignite, and every Run Context mutation they perform passes it through. Agent names are recorded before agents start and cleared after they finish. At minimum, Hammer records `pulmu_smith`; read-only parallel groups should also be recorded when practical.
 
-Retry paths reuse the same run ID and explicitly record both the retry count and every stage transition:
+Stage mutations admit only the current stage or the next stage in the seven-stage order and require the expected run ID. Hammer requires finalized Shape metadata and its verification plan; Hone requires current Quench evidence; Ship requires Quench, Hone, and delivery evidence for the current candidate.
+
+Retry paths reuse the same run ID. `increment-retry` atomically consumes the run-wide budget, invalidates downstream evidence/receipts, and returns the stage to Hammer:
 
 ```text
 Quench failure: quench → increment quench → hammer → quench
 Hone finding:  hone → increment hone → hammer → quench → hone
 ```
+
+The limits are three Quench fixes and two Hone refinements for the entire run. Reworded or repeated failures do not create a new budget.
 
 Run Context completion does not weaken Ship. Local delivery completes only after the reviewed local commit exists. GitHub delivery completes only after Ship obtains a validated pull-request URL and matching PR number. A terminal run records Ship as completed, clears active agents, records the commit and optional PR, sets `completedAt`, and writes a history snapshot.
 
@@ -94,9 +98,9 @@ When automation cannot continue, the Orchestrator calls `fail` with a short stab
 
 ## Previous runs
 
-Ignite detects current state before initialization. If preflight permits a replacement run to initialize, a valid previous `running` state is reported, marked `interrupted`, archived, and replaced with a distinct run ID; Pulmu never resumes it automatically. If a dirty working tree blocks Ignite first, Pulmu reports the previous run ID, stage, and branch but leaves it `running`, because dirtiness alone cannot distinguish a live Smith from a stale process. A malformed regular file is quarantined and replaced only by explicit `init`; other operations fail closed.
+Ignite detects current state before initialization. A valid previous `running` state blocks replacement even when the worktree is clean; the user or active Orchestrator must explicitly complete, fail, or interrupt it first. If a dirty working tree blocks Ignite, Pulmu reports the previous run ID, stage, and branch but leaves it unchanged. A terminal run may be followed by a distinct fresh Ignite task, which preserves the new prompt/type and isolates prior evidence. A malformed regular file is quarantined and replaced only by explicit `init`; other operations fail closed.
 
-Legacy metadata without a `run_id` reuses only a compatible `running` context whose task type, sanitized prompt, base, and branch match verified provenance. A terminal context is preserved in history and replaced by a distinct new running context before legacy metadata synchronization.
+Legacy metadata without a `run_id` reuses only a compatible `running` context whose task type, sanitized prompt, base, and branch match verified provenance. It cannot replace a terminal context; use Ignite for a fresh task.
 
 ## Helper operations
 
@@ -107,6 +111,13 @@ set-stage <stage>
 set-agents [agent...]
 sync-metadata <canonical metadata>
 increment-retry <quench|hone>
+quench-evidence <begin|pass> <run/candidate identity>
+verification-plan --plan <file>
+review-attempt --role <role> --candidate <fingerprint>
+review-result <structured result>
+review-check
+recover-ship --commit <sha>
+validate-ship --commit <sha>
 complete --delivery <local|github> --commit <sha> [PR fields]
 fail --code <CODE> --message <concise message>
 interrupt [--message <concise message>]

@@ -124,7 +124,7 @@ If Pulmu must stop, record a concise safe terminal state first:
 bash <pulmu-skill-dir>/scripts/run-context.sh fail --code "<STABLE_CODE>" --message "<concise reason>" --expect-run-id "$RUN_ID"
 ```
 
-Use `interrupt` for an interrupted session. Never put credentials, environment values, raw logs, full command output, or model responses in Run Context. A previous `running` state is reported and archived as interrupted only when the next Ignite can actually initialize its replacement; it is never resumed automatically. If dirty work blocks Ignite, report the prior run but leave it unchanged because it may still be live.
+Use `interrupt` for an interrupted session. Never put credentials, environment values, raw logs, full command output, or model responses in Run Context. A previous `running` state blocks a replacement Ignite until the active Orchestrator explicitly completes, fails, or interrupts it. If dirty work blocks Ignite, report the prior run but leave it unchanged because it may still be live.
 
 ## Forge workflow
 
@@ -132,7 +132,7 @@ Use `interrupt` for an interrupted session. Never put credentials, environment v
 
 Emit the concise Ignite activity line outside the plan.
 
-Run the skill's `scripts/ignite.sh`, passing the Orchestrator's provisional task type, a short meaningful slug, and the user's task. The script performs deterministic preflight checks, detects the repository base policy, creates/reuses a `pulmu/<mapped-type>/<slug>` branch, and initializes provisional metadata.
+Run the skill's `scripts/ignite.sh`, passing the Orchestrator's provisional task type, a short meaningful slug, and the user's task. The script performs deterministic preflight checks, detects the repository base policy, creates a fresh `pulmu/<mapped-type>/<slug>` branch, and initializes isolated provisional metadata. A terminal prior task is never inferred as the new task merely because the current branch is a Pulmu branch.
 
 Example:
 
@@ -209,6 +209,14 @@ bash <pulmu-skill-dir>/scripts/metadata.sh finalize \
 
 Do not change these fields later or re-infer them in Ship. Pattern automatically propagates frontend and design areas; when Pattern is skipped, do not add design metadata without independent repository evidence.
 
+Record at least one concrete verification command, with its repository-relative working directory, before Hammer. Use the commands selected from repository evidence and the Test Scout; documentation-only work still needs an applicable check such as `git diff --check`.
+
+```bash
+bash <pulmu-skill-dir>/scripts/metadata.sh verification \
+  --check "<relative-directory>" "<noninteractive command>" \
+  --expect-run-id "$RUN_ID"
+```
+
 Print `✓ Forge: <mode>` and a terse plan summary.
 
 Keep Run Context at `shape` while Architect and optional Designer work. Set the active list for each actual agent group and clear it afterward. `metadata.sh finalize` synchronizes the already-decided canonical metadata into Run Context.
@@ -226,6 +234,7 @@ Rules:
 - Smith implements the smallest complete source and test change using existing project patterns
 - Smith implements the Pattern brief when present
 - Smith does not commit, push, create or merge a PR, or force-push
+- Smith leaves the real Git index unchanged; Ship rejects any pre-staged content
 - the Orchestrator does not compete with Smith by editing task files
 
 Print brief `•` lines for meaningful file groups, not every edit operation.
@@ -237,10 +246,10 @@ Emit the concise Quench activity line outside the plan.
 Run:
 
 ```bash
-bash <pulmu-skill-dir>/scripts/quench.sh
+bash <pulmu-skill-dir>/scripts/quench.sh --expect-run-id "$RUN_ID"
 ```
 
-The script discovers common project checks and records its latest log under `.git/`.
+The script executes the Shape verification plan with bounded, noninteractive process groups and records its latest passing log under `.git/`. Missing plans, unavailable commands, and timeouts cannot produce PASS.
 
 If Quench fails:
 
@@ -253,6 +262,8 @@ If Quench fails:
 Maximum automatic Quench fix attempts: **3**.
 
 If it still fails, print `✗`, summarize the remaining failure, and stop before Ship.
+
+An unavailable prerequisite (exit 126/127), timeout (124), or external access failure is an environment failure, not automatically a Smith code-fix attempt. Report the exact command/status and stop for the one concrete environment repair unless repository evidence shows a task-code defect.
 
 On success, print `✓` with the checks that passed.
 
@@ -271,12 +282,12 @@ Run the mode- and risk-specific read-only reviewers from `references/agent-orche
 Independent reviewers may run in parallel. Give each reviewer:
 
 - original task and acceptance condition
-- base branch
-- current branch/diff
+- run ID, base branch and commit, current branch and HEAD, and exact Quench candidate fingerprint/tree
+- the complete candidate, including tracked, untracked, and deleted paths—not only `base...HEAD`
 - Quench evidence
 - the Pattern brief when the conditional design pass ran
 
-All reviewers are read-only and independent from Smith. The Orchestrator consolidates duplicate or conflicting findings into one severity-ranked Hone result. When Pattern ran, the Design Reviewer checks the implementation against `references/design-pass.md`.
+Start each reviewer in a fresh context containing only that review input and `references/review-contract.md`; exclude Smith discussion, implementation rationale, prior PASS conclusions, and other reviewers' verdicts from its first review. All reviewers are read-only and independent from Smith. Open the role's review attempt before spawning it, then record its structured result for the same candidate. A missing or malformed result gets one transport/output repair attempt; a second incomplete result stops Hone. The Orchestrator consolidates duplicate or conflicting findings only after independent results arrive. When Pattern ran, the Design Reviewer checks the implementation against `references/design-pass.md`.
 
 If Hone reports high or medium findings:
 
@@ -289,6 +300,8 @@ If Hone reports high or medium findings:
 Maximum automatic Hone refinement rounds: **2**.
 
 Low-severity, non-blocking suggestions may remain in the final summary. High/medium unresolved findings block Ship.
+
+If Hone reveals a new security, compatibility, Pattern, or task-scope requirement outside finalized Shape metadata, stop with the current work preserved and report the required Shape revision. Do not silently change frozen routing metadata or ship with missing specialist review.
 
 When review is clear, print `✓ Review: PASS`.
 
@@ -342,7 +355,7 @@ bash <pulmu-skill-dir>/scripts/ship.sh \
 
 High-risk Full Forge delivery becomes draft by configured default. Use explicit `--draft` for another evidence-based case; do not make every Full Forge PR draft.
 
-The script verifies the final-diff evidence, stages only the recorded path manifest, creates one cohesive commit, and normally pushes. It creates or reuses an open PR, applies the bounded label set, and requires a real PR URL. It never force-pushes, auto-merges, or merges.
+The script verifies one run-bound candidate tree, rejects pre-existing index content, stages only the recorded path manifest, checks the staged and committed trees against that candidate, and normally pushes. GitHub operations are pinned to the single origin fetch/push repository and the returned PR URL must identify it. It creates or reuses an open PR, applies the bounded label set, and requires a real PR URL. It never force-pushes, auto-merges, or merges.
 
 During Ship, use ordinary subordinate progress messages without adding top-level tasks:
 
@@ -371,4 +384,4 @@ Use:
 
 Do not create a PR after failed Quench or blocking Hone findings.
 
-Before printing this stopped block, use Run Context `fail` with the current stage, a stable concise code, and a sanitized explanation. Use `interrupt` instead when the session or user stops a non-failed run.
+Before printing this stopped block, use Run Context `fail` with the current stage, a stable concise code, and a sanitized explanation. If Ignite failed before returning a run ID, report that pre-initialization failure without attempting a state mutation. Use `interrupt` instead when the session or user stops a non-failed run. A Ship failure after the reviewed commit exists may be retried only through Ship's exact same-run commit recovery; do not start a fresh Ignite to recover delivery.
