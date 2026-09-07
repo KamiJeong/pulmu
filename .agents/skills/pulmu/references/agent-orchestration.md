@@ -34,7 +34,8 @@ Choose a provisional mode during Ignite so Inspect routing is possible. Inspect 
 ## Routing and handoffs
 
 - Parallelize only independent read-only work. Do not spawn agents merely to increase count.
-- The Orchestrator gives each agent the original task, base/current branch, relevant prior evidence, and a narrow role-specific question.
+- After consolidating a read-only scout/architect/designer result or recording a reviewer receipt, release that finished thread with the runtime's supported agent-lifecycle control. Keep the Smith thread available for bounded fixes, but start reviewers fresh for each Quench candidate. If required fresh review capacity is unavailable after cleanup, stop rather than omit the reviewer or reuse implementation context.
+- The Orchestrator gives each agent the original task, base/current branch, relevant prior evidence, and a narrow role-specific question. Reviewers instead receive the fresh, candidate-scoped input defined in `review-contract.md`.
 - The Orchestrator consolidates results; raw subagent output does not become extra `update_plan` items.
 - Inspect and Shape determine type, forge, risk, areas, Pattern, and conditional review flags. The Orchestrator finalizes that canonical metadata once after Shape; reviewers and Ship consume it instead of re-inferring it.
 - Architect and Designer return briefs, not edits.
@@ -42,13 +43,15 @@ Choose a provisional mode during Ignite so Inspect routing is possible. Inspect 
 - Reuse the same Smith through Hammer → Quench retry and Hone → Hammer refinements.
 - Failure Analyst is conditional: deterministic verification comes first, and straightforward failures go directly back to Smith.
 - Reviewers never edit. The Orchestrator deduplicates findings, resolves conflicting severity with evidence, and sends only blocking or accepted corrections to Smith.
+- A required agent crash or malformed output gets one bounded transport/output repair request. If its required evidence still cannot be obtained, stop the current stage; never infer a PASS. Reviewer attempts follow the stricter receipt procedure in `review-contract.md`.
+- If implementation or review reveals a new security, compatibility, Pattern, or scope requirement outside finalized Shape decisions, stop with work preserved and report that Shape must be revised; do not silently under-route reviewers or mutate finalized metadata.
 - Ignite, Quench verification, and Ship use no subagent unless the Quench failure-analysis condition applies.
 
-## Reasoning escalation
+## Reasoning configuration
 
 Use the configured defaults rather than maximizing effort. Luna handles narrow repetitive inspection at medium. Terra handles exploration, analysis, and review at medium or high. Sol handles architecture, design, implementation, and critical review at high.
 
-Only authentication, authorization, payment, destructive database migration, data-loss risk, cryptography, concurrency, or public API breaking changes may justify an `xhigh` spawn override. Apply that override only to Architect or Security Reviewer. Never use `max` effort in the default Pulmu workflow.
+The agent TOMLs are authoritative for each role's model and reasoning effort. Do not attempt spawn-time effort overrides or use `max` effort in the default Pulmu workflow.
 
 ## Delivery boundary
 

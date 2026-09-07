@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-usage() { pulmu_die "usage: metadata.sh finalize|hone|delivery [options]"; }
+usage() { pulmu_die "usage: metadata.sh finalize|verification|review-attempt|review|hone|delivery [options]"; }
 ROOT="$(pulmu_repo_root)"; cd "$ROOT"
 COMMAND="${1:-}"; [[ -n "$COMMAND" ]] || usage; shift
 pulmu_load_config "$ROOT"
@@ -38,9 +38,7 @@ actual = {"prompt": state["task"]["prompt"], "type": state["task"]["type"], "bas
 raise SystemExit(0 if actual == expected else 1)' "$task" "$type" "$base" "$branch" <<<"$state_json" ||
           pulmu_die "legacy metadata conflicts with the active running Run Context"
       else
-        [[ -z "$expected" ]] || pulmu_die "terminal Run Context cannot satisfy the expected legacy runId"
-        output="$(pulmu_run_context init --task-type "$type" --task "$task" --base "$base" --branch "$branch")"
-        current="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$output")"
+        pulmu_die "terminal Run Context cannot be replaced by legacy metadata; start a fresh task with Ignite"
       fi
       ;;
     *'PULMU_RUN_DETECTED=false'*)
@@ -51,6 +49,14 @@ raise SystemExit(0 if actual == expected else 1)' "$task" "$type" "$base" "$bran
   esac
   [[ -n "$current" ]] || pulmu_die "legacy Run Context bootstrap did not return a runId"
   [[ -z "$expected" || "$expected" == "$current" ]] || pulmu_die "Run Context runId changed; refusing stale legacy migration"
+  current_stage="$(pulmu_run_context show | python3 -c 'import json, sys; print(json.load(sys.stdin)["stage"]["current"])')"
+  if [[ "$current_stage" == "ignite" ]]; then
+    pulmu_run_context set-stage inspect --expect-run-id "$current" >/dev/null
+    current_stage="inspect"
+  fi
+  if [[ "$current_stage" == "inspect" ]]; then
+    pulmu_run_context set-stage shape --expect-run-id "$current" >/dev/null
+  fi
   pulmu_metadata_write run_id "$current"
   printf '%s\n' "$current"
 }
@@ -109,6 +115,7 @@ case "$COMMAND" in
         "$(pulmu_metadata_read base_branch)" "$(pulmu_metadata_read branch)" "$EXPECT_RUN_ID")"
     fi
     pulmu_metadata_guard "$EXPECT_RUN_ID"
+    pulmu_run_context set-stage shape --expect-run-id "$EXPECT_RUN_ID" >/dev/null
     git_dir="$(pulmu_git_dir)"
     mirror_base="$(sed -n '1p' "$git_dir/pulmu-base" 2>/dev/null || true)"
     mirror_branch="$(sed -n '1p' "$git_dir/pulmu-branch" 2>/dev/null || true)"
@@ -127,12 +134,69 @@ case "$COMMAND" in
     [[ "$(pulmu_metadata_read task_type)" == "$TYPE" ]] || pulmu_die "final task type must match the type used for branch naming during Ignite"
     branch="$(git branch --show-current)"; [[ "$(pulmu_metadata_read branch)" == "$branch" ]] || pulmu_die "metadata branch does not match the current branch"
     pulmu_metadata_write task_type "$TYPE"; pulmu_metadata_write forge "$FORGE"; pulmu_metadata_write risk "$RISK"; pulmu_metadata_write areas "$AREAS"
-    pulmu_metadata_write pattern "$PATTERN"; pulmu_metadata_write security_review "$SECURITY"; pulmu_metadata_write compatibility_review "$COMPAT"; pulmu_metadata_write status final
+    pulmu_metadata_write pattern "$PATTERN"; pulmu_metadata_write security_review "$SECURITY"; pulmu_metadata_write compatibility_review "$COMPAT"
     pulmu_run_context sync-metadata \
       --type "$TYPE" --forge "$FORGE" --risk "$RISK" --areas "$AREAS" --pattern "$PATTERN" \
       --base "$(pulmu_metadata_read base_branch)" --branch "$(pulmu_metadata_read branch)" \
       --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+    pulmu_metadata_write status final
     printf 'PULMU_METADATA_STATUS=final\nPULMU_RUN_ID=%s\nPULMU_TYPE=%s\nPULMU_FORGE=%s\nPULMU_RISK=%s\nPULMU_AREAS=%s\nPULMU_PATTERN=%s\n' "$EXPECT_RUN_ID" "$TYPE" "$FORGE" "$RISK" "$AREAS" "$PATTERN"
+    ;;
+  verification)
+    EXPECT_RUN_ID=""; declare -a CHECK_DIRS=() CHECK_COMMANDS=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --check) CHECK_DIRS+=("${2:-}"); CHECK_COMMANDS+=("${3:-}"); shift 3 ;;
+        --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;;
+        *) pulmu_die "unknown metadata verification option: $1" ;;
+      esac
+    done
+    pulmu_metadata_guard "$EXPECT_RUN_ID"
+    [[ "$(pulmu_metadata_read status 2>/dev/null || true)" == "final" ]] || pulmu_die "task metadata must be finalized before the verification plan"
+    [[ "${#CHECK_COMMANDS[@]}" -gt 0 ]] || pulmu_die "verification plan requires at least one --check DIR COMMAND"
+    dir="$(pulmu_metadata_dir)"; tmp="$(mktemp "$(pulmu_git_dir)/pulmu-verification-plan.XXXXXX")"; trap 'rm -f "$tmp"' EXIT HUP INT TERM
+    : > "$tmp"
+    for index in "${!CHECK_COMMANDS[@]}"; do
+      check_dir="${CHECK_DIRS[$index]}"; command="${CHECK_COMMANDS[$index]}"
+      [[ -n "$check_dir" && -n "$command" ]] || { rm -f "$tmp"; pulmu_die "verification checks require a working directory and command"; }
+      [[ "$check_dir" != *$'\n'* && "$check_dir" != *$'\r'* && "$check_dir" != *$'\t'* && "$command" != *$'\n'* && "$command" != *$'\r'* && "$command" != *$'\t'* ]] || { rm -f "$tmp"; pulmu_die "verification checks must be one line without tabs"; }
+      [[ "$check_dir" != /* ]] || { rm -f "$tmp"; pulmu_die "verification working directory must stay inside the repository"; }
+      root_real="$(cd "$ROOT" && pwd -P)"
+      dir_real="$(cd "$ROOT/$check_dir" 2>/dev/null && pwd -P || true)"
+      [[ -n "$dir_real" && ( "$dir_real" == "$root_real" || "$dir_real" == "$root_real/"* ) ]] || { rm -f "$tmp"; pulmu_die "verification working directory must resolve inside the repository: $check_dir"; }
+      printf '%s\t%s\t%s\n' "$command" "$check_dir" "$command" >> "$tmp"
+    done
+    pulmu_run_context verification-plan --plan "$tmp" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+    rm -f "$tmp"; trap - EXIT HUP INT TERM
+    printf 'PULMU_VERIFICATION_PLAN=ready\nPULMU_VERIFICATION_CHECKS=%s\n' "${#CHECK_COMMANDS[@]}"
+    ;;
+  review-attempt)
+    ROLE=""; CANDIDATE=""; EXPECT_RUN_ID=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --role) ROLE="${2:-}"; shift 2 ;; --candidate) CANDIDATE="${2:-}"; shift 2 ;;
+        --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;; *) pulmu_die "unknown metadata review-attempt option: $1" ;;
+      esac
+    done
+    pulmu_metadata_guard "$EXPECT_RUN_ID"
+    pulmu_run_context review-attempt --role "$ROLE" --candidate "$CANDIDATE" --expect-run-id "$EXPECT_RUN_ID"
+    ;;
+  review)
+    ROLE=""; CANDIDATE=""; COMPLETION=""; SEVERITY=""; FINDINGS=""; EVIDENCE=""; LIMITATIONS="none"; EXPECT_RUN_ID=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --role) ROLE="${2:-}"; shift 2 ;; --candidate) CANDIDATE="${2:-}"; shift 2 ;;
+        --completion) COMPLETION="${2:-}"; shift 2 ;;
+        --severity) SEVERITY="${2:-}"; shift 2 ;; --findings) FINDINGS="${2:-}"; shift 2 ;;
+        --evidence) EVIDENCE="${2:-}"; shift 2 ;;
+        --limitations) LIMITATIONS="${2:-}"; shift 2 ;; --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;;
+        *) pulmu_die "unknown metadata review option: $1" ;;
+      esac
+    done
+    pulmu_metadata_guard "$EXPECT_RUN_ID"
+    pulmu_run_context review-result --role "$ROLE" --candidate "$CANDIDATE" --completion "$COMPLETION" --severity "$SEVERITY" \
+      --findings "$FINDINGS" --evidence "$EVIDENCE" --limitations "$LIMITATIONS" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+    printf 'PULMU_REVIEW_RESULT=%s\n' "$ROLE"
     ;;
   hone)
     RESULT=""; EXPECT_RUN_ID=""
@@ -141,7 +205,8 @@ case "$COMMAND" in
     [[ "$RESULT" == "pass" ]] || pulmu_die "Hone evidence must be an explicit pass"
     [[ "$(pulmu_metadata_read status 2>/dev/null || true)" == "final" ]] || pulmu_die "task metadata must be finalized before Hone evidence"
     pulmu_evidence_matches quench_fingerprint || pulmu_die "Hone diff does not match the passing Quench diff"
-    pulmu_metadata_write hone_fingerprint "$(pulmu_changed_fingerprint)"; printf 'PULMU_HONE=PASS\n'
+    pulmu_run_context review-check --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+    printf 'PULMU_HONE=PASS\n'
     ;;
   delivery)
     TITLE=""; SUMMARY=""; RISK_REASON=""; EXPECT_RUN_ID=""; declare -a CHANGES=() FOCUS=()
