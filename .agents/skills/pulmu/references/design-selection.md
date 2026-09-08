@@ -16,19 +16,18 @@ For a small or reversible UI addition, state one suitable direction and proceed.
 Wait only when the choice is consequential and the user has not already chosen or delegated the decision.
 If the available tools cannot produce a viewable comparison, disclose that limit and ask for direction instead of presenting prose as if it were a visual comparison. When the user delegated the choice, select the recommendation and proceed.
 
-## Use public examples as discovery seeds
+## Shortlist named design references
 
-The [Wix design-system examples](https://www.wix.com/studio/blog/design-system-examples) and [Figma design-system examples](https://www.figma.com/resource-library/design-system-examples/) are seed catalogs for discovering possible references. They are not popularity rankings, compatibility guarantees, or a list of interchangeable implementation libraries.
+Use the named systems and guidelines below as starting candidates. Shortlist by product needs and repository constraints; this is not a popularity ranking or a list of interchangeable implementation libraries.
 
 Classify a shortlisted reference before presenting it:
 
 | Kind | Typical examples | What it can justify |
 | --- | --- | --- |
 | platform guidance | Apple Human Interface Guidelines | platform conventions and interaction guidance |
-| general product UI system | Material, Fluent, Carbon, Spectrum | component behavior, tokens, composition, and implementation candidates |
-| ecosystem-specific system | Polaris, Lightning, SAP Fiori | fit within the corresponding product ecosystem |
+| general product UI system | Google Material Design, Microsoft Fluent, IBM Carbon, Adobe Spectrum | component behavior, tokens, composition, and implementation candidates |
+| ecosystem-specific system | Shopify Polaris, Salesforce Lightning Design System, SAP Fiori | fit within the corresponding product ecosystem |
 | brand/editorial reference | Audi, Guardian, Mailchimp | visual voice, typography, and content hierarchy inspiration |
-| Figma kit or template | community files included by example catalogs | prototype or visual exploration starting point |
 
 Do not imply that a guideline, brand case study, or Figma asset provides production components. Do not adopt another company's brand identity wholesale.
 

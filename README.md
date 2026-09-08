@@ -118,7 +118,7 @@ For a consequential design choice, Pulmu:
 
 An existing CSS framework or component library does not necessarily provide a product-level UI direction. Small UI adjustments generally reuse existing conventions without a two-option design exercise. Feedback such as “too dense” or “too empty” is enough; Pulmu translates it into a concrete revision.
 
-The [Wix examples](https://www.wix.com/studio/blog/design-system-examples) and [Figma examples](https://www.figma.com/resource-library/design-system-examples/) provide discovery candidates, not popularity rankings or guaranteed implementation libraries. Pulmu distinguishes platform guidance, UI systems, ecosystem-specific systems, brand references, and Figma kits. Before recommending adoption, it checks shortlisted candidates against current primary sources for framework support, maintenance, and usage conditions. See the [design selection guide](./.agents/skills/pulmu/references/design-selection.md).
+Pulmu starts with named references such as Apple Human Interface Guidelines, Google Material Design, Microsoft Fluent, IBM Carbon, Adobe Spectrum, Shopify Polaris, Salesforce Lightning Design System, and SAP Fiori. It distinguishes platform guidance, general UI systems, ecosystem-specific systems, and brand references, then narrows candidates by product needs. Before recommending adoption, it checks current primary sources for framework support, maintenance, and usage conditions. See the [design selection guide](./.agents/skills/pulmu/references/design-selection.md).
 
 ## Execution depth and results
 

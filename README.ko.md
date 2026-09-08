@@ -120,7 +120,7 @@ $pulmu "같은 대시보드를 만들어줘. 디자인은 적합한 방향으로
 
 CSS 프레임워크나 컴포넌트 라이브러리가 설치되어 있어도 제품의 UI 방향은 없을 수 있습니다. 작은 UI 수정은 보통 기존 규칙을 따르며, 매번 두 가지 시안을 고르게 하지 않습니다. “너무 답답하다”, “너무 휑하다”처럼 피드백해도 됩니다. Pulmu가 구체적인 수정 방향으로 바꿔 제안합니다.
 
-[Wix 사례 글](https://www.wix.com/studio/blog/design-system-examples)과 [Figma 사례 글](https://www.figma.com/resource-library/design-system-examples/)은 후보를 발견하는 자료입니다. 인기 순위나 즉시 도입 가능한 구현 라이브러리 목록으로 취급하지 않습니다. 플랫폼 지침·제품 UI 시스템·특정 생태계 시스템·브랜드 참고 사례·Figma 키트를 구분하고, 실제 도입을 추천하기 전에 후보의 공식 자료에서 프레임워크 지원·유지보수 상태·사용 조건을 확인합니다. 세부 정책은 [디자인 선택 지침](./.agents/skills/pulmu/references/design-selection.md)에 있습니다.
+Apple Human Interface Guidelines, Google Material Design, Microsoft Fluent, IBM Carbon, Adobe Spectrum, Shopify Polaris, Salesforce Lightning Design System, SAP Fiori 등을 참고 후보로 명시합니다. 플랫폼 지침·범용 UI 시스템·특정 생태계 시스템·브랜드 참고 사례를 구분하고 제품의 요구에 맞춰 후보를 좁힙니다. 실제 도입을 추천하기 전에는 공식 자료에서 프레임워크 지원·유지보수 상태·사용 조건을 확인합니다. 세부 정책은 [디자인 선택 지침](./.agents/skills/pulmu/references/design-selection.md)에 있습니다.
 
 ## 실행 깊이와 완료 결과
 
