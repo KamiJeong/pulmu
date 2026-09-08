@@ -305,7 +305,11 @@ local_installation_test() {
     printf 'other agent\n' > "$target/.codex/agents/other.toml"
     printf 'other skill\n' > "$target/.agents/skills/other/SKILL.md"
     before="$(git hash-object "$target/.codex/config.toml")"
+    # Exercise logical vs physical paths on every OS (macOS temp roots may be links).
+    ln -s "$target" "$tmp/project-alias"
+    target="$tmp/project-alias"
     output="$(bash "$ROOT/install.sh" --local "$target")" || exit 1
+    target="$(cd "$target" && pwd -P)" || exit 1
     grep -Fq "Installation scope: local ($target)" <<<"$output" || exit 1
     [[ -x "$target/.agents/skills/pulmu/scripts/ship.sh" ]] || exit 1
     agent_count="$(find "$target/.codex/agents" -name 'pulmu-*.toml' -type f | wc -l)"
