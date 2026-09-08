@@ -43,7 +43,7 @@ github_repository_contract_test() {
 landing_page_contract_test() {
   local page="$ROOT/index.html" version install_command
   version="$(tr -d '[:space:]' < "$ROOT/.agents/skills/pulmu/VERSION")"
-  install_command='git clone https://github.com/KamiJeong/pulmu.git &amp;&amp; cd pulmu &amp;&amp; ./install.sh'
+  install_command='git clone https://github.com/KamiJeong/pulmu.git &amp;&amp; cd pulmu'
 
   grep -Fq '<link rel="canonical" href="https://kamijeong.github.io/pulmu/">' "$page" || return 1
   grep -Fq '<link rel="icon" href="data:image/svg+xml,' "$page" || return 1
@@ -296,6 +296,73 @@ uninstaller_test() {
   return "$status"
 }
 
+local_installation_test() {
+  local tmp target status before output agent_count
+  tmp="$(mktemp -d)"; target="$tmp/project with spaces"; status=0
+  (
+    mkdir -p "$target/.codex/agents" "$target/.agents/skills/other"
+    printf 'model = "keep-my-model"\n' > "$target/.codex/config.toml"
+    printf 'other agent\n' > "$target/.codex/agents/other.toml"
+    printf 'other skill\n' > "$target/.agents/skills/other/SKILL.md"
+    before="$(git hash-object "$target/.codex/config.toml")"
+    # Exercise logical vs physical paths on every OS (macOS temp roots may be links).
+    ln -s "$target" "$tmp/project-alias"
+    target="$tmp/project-alias"
+    output="$(bash "$ROOT/install.sh" --local "$target")" || exit 1
+    target="$(cd "$target" && pwd -P)" || exit 1
+    grep -Fq "Installation scope: local ($target)" <<<"$output" || exit 1
+    [[ -x "$target/.agents/skills/pulmu/scripts/ship.sh" ]] || exit 1
+    agent_count="$(find "$target/.codex/agents" -name 'pulmu-*.toml' -type f | wc -l)"
+    [[ "$agent_count" -eq 12 ]] || exit 1
+    [[ "$(git hash-object "$target/.codex/config.toml")" == "$before" ]] || exit 1
+    # Updating replaces only the installed Pulmu copy, including stale resources.
+    printf 'old installed file\n' > "$target/.agents/skills/pulmu/obsolete.txt"
+    bash "$ROOT/install.sh" --local "$target" >/dev/null || exit 1
+    [[ ! -e "$target/.agents/skills/pulmu/obsolete.txt" && -f "$ROOT/.agents/skills/pulmu/SKILL.md" ]] || exit 1
+    # A failure after replacing some agents restores the complete prior installation.
+    printf 'previous skill\n' > "$target/.agents/skills/pulmu/obsolete.txt"
+    printf 'previous architect\n' > "$target/.codex/agents/pulmu-architect.toml"
+    printf 'previous smith\n' > "$target/.codex/agents/pulmu-smith.toml"
+    mkdir -p "$tmp/bin"
+    cat > "$tmp/bin/mv" <<'SH'
+#!/usr/bin/env bash
+if [[ "$1" == *"/.pulmu-install."*"/agents/pulmu-smith.toml" ]]; then
+  exit 1
+fi
+exec "$PULMU_TEST_REAL_MV" "$@"
+SH
+    chmod +x "$tmp/bin/mv"
+    if PULMU_TEST_REAL_MV="$(command -v mv)" PATH="$tmp/bin:$PATH" bash "$ROOT/install.sh" --local "$target" >/dev/null 2>&1; then exit 1; fi
+    grep -qx 'previous skill' "$target/.agents/skills/pulmu/obsolete.txt" || exit 1
+    grep -qx 'previous architect' "$target/.codex/agents/pulmu-architect.toml" || exit 1
+    grep -qx 'previous smith' "$target/.codex/agents/pulmu-smith.toml" || exit 1
+    [[ -z "$(find "$target" -maxdepth 1 -name '.pulmu-install.*' -print)" ]] || exit 1
+    bash "$ROOT/uninstall.sh" --local "$target" >/dev/null || exit 1
+    [[ ! -e "$target/.agents/skills/pulmu" && ! -e "$target/.codex/agents/pulmu-smith.toml" ]] || exit 1
+    [[ -f "$target/.agents/skills/other/SKILL.md" && -f "$target/.codex/agents/other.toml" ]] || exit 1
+    [[ "$(git hash-object "$target/.codex/config.toml")" == "$before" ]] || exit 1
+    bash "$ROOT/uninstall.sh" --local "$target" >/dev/null || exit 1
+    if bash "$ROOT/install.sh" --local >/dev/null 2>&1; then exit 1; fi
+    if bash "$ROOT/uninstall.sh" --local "$tmp/missing" >/dev/null 2>&1; then exit 1; fi
+    if bash "$ROOT/install.sh" --global --local "$target" >/dev/null 2>&1; then exit 1; fi
+    # Local paths cannot escape to other config directories through symlinks.
+    mkdir -p "$tmp/linked" "$tmp/outside/agents"
+    printf 'preserve external file\n' > "$tmp/outside/agents/pulmu-smith.toml"
+    ln -s "$tmp/outside" "$tmp/linked/.codex"
+    if bash "$ROOT/install.sh" --local "$tmp/linked" >/dev/null 2>&1; then exit 1; fi
+    if bash "$ROOT/uninstall.sh" --local "$tmp/linked" >/dev/null 2>&1; then exit 1; fi
+    grep -q 'preserve external file' "$tmp/outside/agents/pulmu-smith.toml" || exit 1
+    [[ ! -e "$tmp/linked/.agents" ]] || exit 1
+    # The source checkout already embeds Pulmu and must never delete itself.
+    before="$(git hash-object "$ROOT/.agents/skills/pulmu/SKILL.md")"
+    bash "$ROOT/install.sh" --local "$ROOT" >/dev/null || exit 1
+    if bash "$ROOT/uninstall.sh" --local "$ROOT" >/dev/null 2>&1; then exit 1; fi
+    if bash "$ROOT/install.sh" --local "$ROOT/.agents/skills/pulmu" >/dev/null 2>&1; then exit 1; fi
+    [[ "$(git hash-object "$ROOT/.agents/skills/pulmu/SKILL.md")" == "$before" ]] || exit 1
+  ) || status=$?
+  rm -rf "$tmp"; return "$status"
+}
+
 demo_packaging_test() {
   local tmp target status agent_count
   tmp="$(mktemp -d)"
@@ -367,7 +434,7 @@ PY
 }
 
 skill_contract_test() {
-  local skill stage design review delivery scripts readme plan_block progress_block actual_plan expected_plan actual_skill_plan actual_readme_plan expected_plain
+  local skill stage design review delivery scripts readme plan_block progress_block actual_plan expected_plan actual_readme_plan expected_plain
   skill="$ROOT/.agents/skills/pulmu/SKILL.md"
   stage="$ROOT/.agents/skills/pulmu/references/stage-contract.md"
   design="$ROOT/.agents/skills/pulmu/references/design-pass.md"
@@ -379,12 +446,12 @@ skill_contract_test() {
   grep -Fq "Codex's \`update_plan\` tool" "$skill" || return 1
   [[ "$(grep -Fc '🔥 Pulmu — Starting the forge workflow' "$skill")" -eq 1 ]] || return 1
   grep -Fq 'The banner is neither a plan item nor an eighth stage.' "$stage" || return 1
-  grep -Fq '`references/design-pass.md`' "$skill" || return 1
-  grep -Fq 'never an eighth top-level stage' "$skill" || return 1
-  grep -Fq 'Pattern determines the intended experience; neither the Designer nor the Orchestrator implements or edits task files.' "$skill" || return 1
-  grep -Fq 'it does not edit application/source/test files.' "$skill" || return 1
-  grep -Fq 'Quick: `pulmu_reviewer`, plus `pulmu_design_reviewer` when Pattern ran' "$skill" || return 1
-  grep -Fq 'Standard: `pulmu_reviewer` and `pulmu_test_reviewer`, plus `pulmu_design_reviewer` when Pattern ran' "$skill" || return 1
+  grep -Fq 'references/design-pass.md' "$skill" || return 1
+  grep -Fq 'Perform a brief read-only necessity assessment before creating a branch' "$skill" || return 1
+  grep -Fq 'Tiny low-risk work may use zero subagents.' "$skill" || return 1
+  grep -Fq 'Designate exactly one task-file writer' "$skill" || return 1
+  grep -Fq '`pulmu_self_review`' "$skill" || return 1
+  grep -Fq 'references/design-selection.md' "$skill" || return 1
 
   plan_block="$(sed -n '/## Native task-progress contract/,/## Terminal contract/p' "$stage")"
   actual_plan="$(grep '^- `.*—' <<<"$plan_block")"
@@ -405,13 +472,10 @@ skill_contract_test() {
     '🪨 Hone — Review' \
     '📦 Ship — Deliver')"
   [[ "$actual_plan" == "$expected_plan" ]] || return 1
-  actual_skill_plan="$(sed -n '/Immediately after Pulmu starts, call/,/Keep these strings unchanged/p' "$skill" | grep -E '^(🔥|🔎|📐|🔨|🌊|🪨|📦)')"
-  [[ "$actual_skill_plan" == "$expected_plain" ]] || return 1
   actual_readme_plan="$(sed -n '/The step text is stable/,/The native plan status/p' "$readme" | grep -E '^(🔥|🔎|📐|🔨|🌊|🪨|📦)')"
   [[ "$actual_readme_plan" == "$expected_plain" ]] || return 1
   ! grep -Eqi '^- `.*\b(active|pending|completed)\b.*`$' <<<"$actual_plan" || return 1
   ! grep -q '^- `.*Pattern' <<<"$plan_block" || return 1
-  grep -Fq 'Do not repeat the full plan in normal assistant messages' "$skill" || return 1
   grep -Fq 'Do not repeat the full plan in normal assistant messages' "$stage" || return 1
 
   progress_block="$(sed -n '/## Terminal contract/,/## Retry paths/p' "$stage")"
@@ -421,8 +485,8 @@ skill_contract_test() {
   grep -Fq 'Decide from Inspect evidence rather than keywords alone.' "$design" || return 1
   grep -Fq 'Do not run this design review for tasks where Pattern was skipped.' "$review" || return 1
   grep -Fq 'Pulmu does not impose Git Flow.' "$delivery" || return 1
-  grep -Fq 'Finalize task metadata once after Shape.' "$skill" || return 1
-  grep -Fq 'update_plan shows the forge to humans. Run Context exposes the forge to machines.' "$skill" || return 1
+  grep -Fq 'Finalize task and execution metadata once after Shape.' "$skill" || return 1
+  grep -Fq 'schemaVersion": 2' "$ROOT/.agents/skills/pulmu/references/run-context.md" || return 1
   grep -Fq 'scripts/run-context.sh set-stage' "$stage" || return 1
   [[ -f "$ROOT/.agents/skills/pulmu/references/run-context.md" ]] || return 1
   grep -Fq 'a real pull-request URL' "$stage" || return 1
@@ -469,7 +533,9 @@ base_selection_paths_test() {
       git remote set-head origin trunk
       git switch -c pulmu/existing >/dev/null
       source "$common"
-      [[ "$(pulmu_base_branch)" == trunk && "$(pulmu_base_branch)" != pulmu/existing ]] || exit 1
+      [[ "$(pulmu_base_branch)" == pulmu/existing ]] || exit 1
+      git switch --detach >/dev/null
+      [[ "$(pulmu_base_branch)" == trunk ]] || exit 1
     ) || status=$?
   fi
   if [[ "$status" -eq 0 ]]; then
@@ -511,6 +577,10 @@ finalize_metadata() {
     --areas "${4:-backend}" --pattern "${5:-false}" \
     --security-review "${6:-false}" --compatibility-review "${7:-false}" \
   )
+  [[ -n "${8:-}" ]] && args+=(--execution "$8")
+  [[ -n "${9:-}" ]] && args+=(--writer "$9")
+  [[ -n "${10:-}" ]] && args+=(--review-mode "${10}")
+  [[ -n "${11:-}" ]] && args+=(--test-review "${11}")
   [[ -n "$run_id" ]] && args+=(--expect-run-id "$run_id")
   bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" "${args[@]}" >/dev/null || return 1
   [[ "${PULMU_TEST_SKIP_PLAN:-0}" == 1 ]] && return 0
@@ -550,16 +620,18 @@ quench_for_run() {
 }
 
 record_review_results() {
-  local run_id role forge pattern security compatibility candidate
+  local run_id role forge pattern security compatibility candidate review_mode test_review
   run_id="$(cat .git/pulmu-metadata/run_id)"
   forge="$(cat .git/pulmu-metadata/forge)"; pattern="$(cat .git/pulmu-metadata/pattern)"
   security="$(cat .git/pulmu-metadata/security_review)"; compatibility="$(cat .git/pulmu-metadata/compatibility_review)"
+  review_mode="$(cat .git/pulmu-metadata/review_mode 2>/dev/null || printf 'independent\n')"
+  test_review="$(cat .git/pulmu-metadata/test_review 2>/dev/null || { [[ "$forge" == "standard" || "$forge" == "full" ]] && printf 'true\n' || printf 'false\n'; })"
   candidate="$(cat .git/pulmu-metadata/quench_fingerprint)"
-  roles=(pulmu_reviewer)
-  [[ "$forge" == "standard" || "$forge" == "full" ]] && roles+=(pulmu_test_reviewer)
-  [[ "$forge" == "full" && "$security" == "true" ]] && roles+=(pulmu_security_reviewer)
-  [[ "$forge" == "full" && "$compatibility" == "true" ]] && roles+=(pulmu_compat_reviewer)
-  [[ "$pattern" == "true" ]] && roles+=(pulmu_design_reviewer)
+  if [[ "$review_mode" == "self" ]]; then roles=(pulmu_self_review); else roles=(pulmu_reviewer); fi
+  [[ "$review_mode" == "independent" && "$test_review" == "true" ]] && roles+=(pulmu_test_reviewer)
+  [[ "$review_mode" == "independent" && "$security" == "true" ]] && roles+=(pulmu_security_reviewer)
+  [[ "$review_mode" == "independent" && "$compatibility" == "true" ]] && roles+=(pulmu_compat_reviewer)
+  [[ "$review_mode" == "independent" && "$pattern" == "true" ]] && roles+=(pulmu_design_reviewer)
   for role in "${roles[@]}"; do
     bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" review-attempt --role "$role" --candidate "$candidate" \
       --expect-run-id "$run_id" >/dev/null || return 1
@@ -596,8 +668,8 @@ metadata_policy_test() {
     git add AGENTS.md && git commit -m 'docs: add repository policy' >/dev/null
     out="$(bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type bugfix --slug login-redirect 'Fix login redirect')"
     grep -q 'PULMU_BASE=develop' <<<"$out" || exit 1
-    grep -q 'PULMU_BRANCH=pulmu/fix/login-redirect' <<<"$out" || exit 1
-    [[ "$(cat .git/pulmu-base)" == develop && "$(cat .git/pulmu-branch)" == pulmu/fix/login-redirect ]] || exit 1
+    grep -q 'PULMU_BRANCH=fix/login-redirect' <<<"$out" || exit 1
+    [[ "$(cat .git/pulmu-base)" == develop && "$(cat .git/pulmu-branch)" == fix/login-redirect ]] || exit 1
     first_run_id="$(cat .git/pulmu-metadata/run_id)"
     if bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type feature --slug ignored 'A different prompt must not replace provenance' >/dev/null 2>&1; then exit 1; fi
     [[ "$(cat .git/pulmu-metadata/run_id)" == "$first_run_id" && "$(cat .git/pulmu-metadata/task)" == 'Fix login redirect' ]] || exit 1
@@ -605,7 +677,7 @@ metadata_policy_test() {
     next_task=$'A different prompt\nwith a second line'
     resume_out="$(bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type feature --slug ignored "$next_task")"
     grep -q 'PULMU_BASE=develop' <<<"$resume_out" || exit 1
-    grep -q 'PULMU_BRANCH=pulmu/feat/ignored' <<<"$resume_out" || exit 1
+    grep -q 'PULMU_BRANCH=feat/ignored' <<<"$resume_out" || exit 1
     [[ "$(cat .git/pulmu-base)" == develop && "$(cat .git/pulmu-metadata/base_branch)" == develop ]] || exit 1
     [[ "$(cat .git/pulmu-metadata/task)" == "$next_task" && "$(cat .git/pulmu-task)" == "$next_task" ]] || exit 1
     second_run_id="$(cat .git/pulmu-metadata/run_id)"
@@ -614,10 +686,72 @@ metadata_policy_test() {
     if bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" 'Ambiguous provenance' >/dev/null 2>&1; then exit 1; fi
     printf 'develop\n' > .git/pulmu-base
     third_out="$(bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type feature --slug pattern-metadata 'Finalize Pattern metadata')"
-    grep -q 'PULMU_BRANCH=pulmu/feat/pattern-metadata' <<<"$third_out" || exit 1
+    grep -q 'PULMU_BRANCH=feat/pattern-metadata' <<<"$third_out" || exit 1
     finalize_metadata feature full medium testing true false true
     [[ "$(cat .git/pulmu-metadata/areas)" == frontend,design,testing ]] || exit 1
     if finalize_metadata feature standard medium testing true false true >/dev/null 2>&1; then exit 1; fi
+  ) || status=$?
+  rm -rf "$tmp"; return "$status"
+}
+
+branch_naming_policy_test() {
+  local tmp repo scripts status run_id output saved_branch saved_id before invalid
+  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
+  (
+    cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
+    git add . && git commit -m init >/dev/null
+    # A human-created namespace lookalike is an ordinary branch, not a run.
+    git switch -c pulmu/feat/manual >/dev/null
+    printf 'human branch\n' > human.txt; git add human.txt; git commit -m 'docs: human work' >/dev/null
+    output="$(bash "$scripts/ignite.sh" --type bugfix --slug first 'Fix first issue')"
+    grep -qx 'PULMU_BRANCH=fix/first' <<<"$output" || exit 1
+    grep -qx 'PULMU_BASE=pulmu/feat/manual' <<<"$output" || exit 1
+    [[ -f human.txt ]] || exit 1
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    bash "$scripts/run-context.sh" interrupt --expect-run-id "$run_id" >/dev/null
+
+    mkdir -p .pulmu; printf '[git]\nbranch_prefix = "pulmu"\nbase_branch = "main"\n' > .pulmu/config.toml
+    git add .pulmu/config.toml; git commit -m 'chore: choose namespace' >/dev/null
+    # A user/repository-provided complete name overrides the optional namespace.
+    output="$(bash "$scripts/ignite.sh" --type feature --slug search --branch feature/PROJ-123-search 'Search customers')"
+    grep -qx 'PULMU_BRANCH=feature/PROJ-123-search' <<<"$output" || exit 1
+    grep -qx 'PULMU_BASE=pulmu/feat/manual' <<<"$output" || exit 1
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    bash "$scripts/run-context.sh" interrupt --expect-run-id "$run_id" >/dev/null
+
+    mkdir -p .pulmu; printf '[git]\nbranch_prefix = "pulmu"\n' > .pulmu/config.toml
+    git add .pulmu/config.toml; git commit -m 'chore: namespace next task' >/dev/null
+    output="$(bash "$scripts/ignite.sh" --type feature --slug scoped 'Namespaced task')"
+    grep -qx 'PULMU_BRANCH=pulmu/feat/scoped' <<<"$output" || exit 1
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    bash "$scripts/run-context.sh" interrupt --expect-run-id "$run_id" >/dev/null
+    mkdir -p .pulmu; printf '[git]\nbranch_prefix = ""\n' > .pulmu/config.toml
+    git add .pulmu/config.toml; git commit -m 'chore: disable namespace' >/dev/null
+    output="$(bash "$scripts/ignite.sh" --type feature --slug unscoped 'Unnamespaced next task')"
+    grep -qx 'PULMU_BRANCH=feat/unscoped' <<<"$output" || exit 1
+    grep -qx 'PULMU_BASE=pulmu/feat/manual' <<<"$output" || exit 1
+    git show-ref --verify --quiet refs/heads/pulmu/feat/scoped || exit 1
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    bash "$scripts/run-context.sh" interrupt --expect-run-id "$run_id" >/dev/null
+
+    # Missing/conflicting identity must fail before state or branch mutation.
+    before="$(git hash-object .git/pulmu/run.json)"; saved_branch="$(cat .git/pulmu-branch)"
+    rm .git/pulmu-branch
+    if bash "$scripts/ignite.sh" --slug broken 'Missing provenance' >/dev/null 2>&1; then exit 1; fi
+    [[ "$(git hash-object .git/pulmu/run.json)" == "$before" ]] || exit 1
+    printf '%s\n' "$saved_branch" > .git/pulmu-branch
+    saved_id="$(cat .git/pulmu-metadata/run_id)"; printf 'different-run\n' > .git/pulmu-metadata/run_id
+    if bash "$scripts/ignite.sh" --slug broken 'Conflicting run identity' >/dev/null 2>&1; then exit 1; fi
+    printf '%s\n' "$saved_id" > .git/pulmu-metadata/run_id
+    for invalid in HEAD '@{-1}' '../escape' '-option' 'bad//name'; do
+      if bash "$scripts/ignite.sh" --branch "$invalid" --slug invalid 'Invalid literal branch' >/dev/null 2>&1; then exit 1; fi
+      [[ "$(git hash-object .git/pulmu/run.json)" == "$before" && "$(git branch --show-current)" == "$saved_branch" ]] || exit 1
+    done
+    # Explicit names retain deterministic collision handling as well.
+    git branch feature/PROJ-123-existing
+    output="$(bash "$scripts/ignite.sh" --branch feature/PROJ-123-existing --slug existing 'Existing requested name')"
+    grep -qx 'PULMU_BRANCH=feature/PROJ-123-existing-2' <<<"$output" || exit 1
   ) || status=$?
   rm -rf "$tmp"; return "$status"
 }
@@ -635,10 +769,10 @@ config_and_collision_test() {
     git add . && git commit -m init >/dev/null
     git branch develop
     git remote add origin "$bare"; git push -u origin main >/dev/null
-    git branch pulmu/feat/search; git push origin pulmu/feat/search >/dev/null; git branch -D pulmu/feat/search >/dev/null
+    git branch feat/search; git push origin feat/search >/dev/null; git branch -D feat/search >/dev/null
     out="$(bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type feature --slug search 'Add search')"
     grep -q 'PULMU_BASE=main' <<<"$out" || exit 1
-    grep -q 'PULMU_BRANCH=pulmu/feat/search-2' <<<"$out" || exit 1
+    grep -q 'PULMU_BRANCH=feat/search-2' <<<"$out" || exit 1
   ) || status=$?
   if [[ "$status" -eq 0 ]]; then
     rm -rf "$repo"; mkdir -p "$repo/.pulmu"; cp -R "$ROOT/examples/task-store/." "$repo/"
@@ -975,7 +1109,7 @@ assert state["pr"] == {"number": 1, "url": "https://github.com/example/pulmu-dem
 PY
     grep -q 'PULMU_LABELS_APPLIED=5' <<<"$out" || exit 1
     grep -q 'PULMU_LABELS_SKIPPED=area: testing' <<<"$out" || exit 1
-    git --git-dir="$bare" show-ref --verify --quiet refs/heads/pulmu/feat/delivery-policy || exit 1
+    git --git-dir="$bare" show-ref --verify --quiet refs/heads/feat/delivery-policy || exit 1
     grep -Fq '## Pulmu Forge' "$GH_BODY_CAPTURE" || exit 1
     grep -Fq '| 📐 Shape | Pattern skipped |' "$GH_BODY_CAPTURE" || exit 1
     grep -Fq -- '- Forge: Full' "$GH_BODY_CAPTURE" || exit 1
@@ -999,7 +1133,7 @@ PY
     resume_out="$(PATH="$fakebin:$PATH" ship_for_run --body-file "$tmp/supplement.md" --delivery github)"
     grep -q 'PULMU_PR_URL=https://github.com/example/pulmu-demo/pull/1' <<<"$resume_out" || exit 1
     [[ "$(git rev-list --count main..HEAD)" -eq 1 && "$(grep -c '^pr create ' "$GH_LOG")" -eq 1 ]] || exit 1
-    grep -q '^pr list --repo github.com/example/pulmu-demo --head pulmu/feat/delivery-policy --base main ' "$GH_LOG" || exit 1
+    grep -q '^pr list --repo github.com/example/pulmu-demo --head feat/delivery-policy --base main ' "$GH_LOG" || exit 1
     grep -q '^pr edit https://github.com/example/pulmu-demo/pull/1 --repo github.com/example/pulmu-demo --title .*--body-file ' "$GH_LOG" || exit 1
     export GH_LABEL_APPLY_FAIL=1
     apply_failure_out="$(PATH="$fakebin:$PATH" ship_for_run --delivery github)"
@@ -1040,7 +1174,7 @@ PY
       printf '\n// ancestry guard fixture\n' >> src/task-store.js
       record_reviewed_delivery 'feat(delivery): guard commit ancestry' 'Rejects a hook-created commit before external delivery.'
       if PATH="$fakebin:$PATH" ship_for_run --delivery github >/dev/null 2>&1; then exit 1; fi
-      if git --git-dir="$ancestry_bare" show-ref --verify --quiet refs/heads/pulmu/feat/ancestry-guard; then exit 1; fi
+      if git --git-dir="$ancestry_bare" show-ref --verify --quiet refs/heads/feat/ancestry-guard; then exit 1; fi
       [[ ! -s "$GH_LOG" || "$(grep -c '^pr ' "$GH_LOG" || true)" -eq 0 ]] || exit 1
     ) || status=$?
   fi
@@ -1133,13 +1267,14 @@ run_context_test() {
     python3 - .git/pulmu/run.json "$run_id" <<'PY'
 import json, pathlib, sys
 state = json.loads(pathlib.Path(sys.argv[1]).read_text())
-assert state["schemaVersion"] == 1 and state["workflow"] == "pulmu"
+assert state["schemaVersion"] == 2 and state["workflow"] == "pulmu"
 assert state["runId"] == sys.argv[2] and state["status"] == "running"
 assert state["stage"] == {"current": "ignite", "status": "in_progress"}
 assert state["git"]["baseBranch"] == "main"
-assert state["git"]["branch"] == "pulmu/feat/persistent-state"
+assert state["git"]["branch"] == "feat/persistent-state"
 assert "should-never-persist" not in state["task"]["prompt"]
 assert state["forge"] is None and state["risk"] is None and state["areas"] == []
+assert state["execution"] is None
 assert state["completedAt"] is None and state["interruptedAt"] is None
 PY
     cp .git/pulmu/run.json "$tmp/semantic-valid.json"
@@ -1206,7 +1341,7 @@ PY
     (
       cd src
       bash "$scripts/run-context.sh" quench-evidence pass \
-        --branch pulmu/feat/persistent-state --base main --base-head "$(git rev-parse main)" \
+        --branch feat/persistent-state --base main --base-head "$(git rev-parse main)" \
         --head "$(git rev-parse HEAD)" --tree "$root_tree" --fingerprint aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
         --log "$tmp/subdir-quench.log" --attempt subdir-scope --expect-run-id "$run_id" >/dev/null
     )
@@ -1253,17 +1388,16 @@ PY
     [[ -f ".git/pulmu/runs/$run_id.json" ]] || exit 1
 
     # A new init gets a new ID; another init cannot replace a live run.
-    bash "$scripts/run-context.sh" init --task-type feature --task 'second run' --base main --branch pulmu/feat/second > "$tmp/second.out"
+    bash "$scripts/run-context.sh" init --task-type feature --task 'second run' --base main --branch feat/second > "$tmp/second.out"
     second_id="$(sed -n 's/^PULMU_RUN_ID=//p' "$tmp/second.out")"
     [[ "$second_id" != "$run_id" ]] || exit 1
-    if bash "$scripts/run-context.sh" init --task-type feature --task 'third run' --base main --branch pulmu/feat/third >/dev/null 2>"$tmp/third.err"; then exit 1; fi
+    if bash "$scripts/run-context.sh" init --task-type feature --task 'third run' --base main --branch feat/third >/dev/null 2>"$tmp/third.err"; then exit 1; fi
     grep -Fq "Pulmu run $second_id is still running" "$tmp/third.err" || exit 1
-    bash "$scripts/run-context.sh" set-agents pulmu_smith --expect-run-id "$second_id" >/dev/null
     printf 'dirty fixture\n' > dirty.tmp
     dirty_output="$(bash "$scripts/ignite.sh" --type feature --slug blocked 'blocked by dirty tree' 2>&1 || true)"
     grep -Fq '⚠ Previous Pulmu run detected:' <<<"$dirty_output" || exit 1
     grep -Fq "${second_id}" <<<"$dirty_output" || exit 1
-    grep -Fq 'at ignite on pulmu/feat/second' <<<"$dirty_output" || exit 1
+    grep -Fq 'at ignite on feat/second' <<<"$dirty_output" || exit 1
     grep -Fq '⚠ Existing run left unchanged because liveness cannot be determined safely' <<<"$dirty_output" || exit 1
     grep -Fq 'working tree is not clean' <<<"$dirty_output" || exit 1
     python3 - .git/pulmu/run.json "$second_id" <<'PY'
@@ -1271,7 +1405,7 @@ import json, pathlib, sys
 state = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert state["runId"] == sys.argv[2] and state["status"] == "running"
 assert state["stage"] == {"current": "ignite", "status": "in_progress"}
-assert state["agents"]["active"] == ["pulmu_smith"]
+assert state["agents"]["active"] == []
 assert not pathlib.Path(sys.argv[1]).with_name("runs").joinpath(sys.argv[2] + ".json").exists()
 PY
     rm dirty.tmp
@@ -1282,7 +1416,7 @@ PY
     malformed="$(bash "$scripts/run-context.sh" detect 2>/dev/null || true)"
     grep -Fq 'PULMU_RUN_DETECTED=malformed' <<<"$malformed" || exit 1
     bash "$scripts/run-context.sh" init --task-type bugfix --task 'recover malformed state' \
-      --base main --branch pulmu/fix/recovery > "$tmp/recovered.out" 2> "$tmp/recovered.err"
+      --base main --branch fix/recovery > "$tmp/recovered.out" 2> "$tmp/recovered.err"
     grep -Fq '⚠ Malformed Pulmu run quarantined:' "$tmp/recovered.err" || exit 1
     find .git/pulmu/runs -maxdepth 1 -name 'corrupt-*.json' -type f | grep -q . || exit 1
 
@@ -1366,7 +1500,7 @@ state = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert state["runId"] == sys.argv[2] and state["status"] == "completed"
 assert state["stage"] == {"current": "ship", "status": "completed"}
 assert state["task"] == {"prompt": "Migrate terminal legacy state", "type": "feature"}
-assert state["git"]["baseBranch"] == "main" and state["git"]["branch"] == "pulmu/feat/legacy-terminal"
+assert state["git"]["baseBranch"] == "main" and state["git"]["branch"] == "feat/legacy-terminal"
 assert state["forge"] == "standard" and state["risk"] == "low" and state["areas"] == ["infra"]
 assert state["git"]["commit"] and state["pr"] is None and state["error"] is None
 PY
@@ -1389,7 +1523,7 @@ stale_run_guard_test() {
     head_before="$(git rev-parse HEAD)"
     bash "$scripts/run-context.sh" interrupt --message 'replace run A with run B' --expect-run-id "$run_a" >/dev/null
     second="$(bash "$scripts/run-context.sh" init --task-type feature --task 'new run B' \
-      --base main --branch pulmu/feat/stale-guard 2>/dev/null)"
+      --base main --branch feat/stale-guard 2>/dev/null)"
     run_b="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$second")"
     [[ "$run_a" != "$run_b" ]] || exit 1
     stale_quench_fingerprint="$(cat .git/pulmu-metadata/quench_fingerprint)"
@@ -1429,6 +1563,149 @@ python_preflight_test() {
   rm -rf "$tmp"; return "$status"
 }
 
+adaptive_execution_policy_test() {
+  local tmp scripts status
+  tmp="$(mktemp -d)"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  (
+    repo="$tmp/direct"; mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"; cd "$repo"
+    git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
+    git add . && git commit -m init >/dev/null
+    bash "$scripts/ignite.sh" --type bugfix --slug direct-policy 'Exercise direct adaptive execution' >/dev/null
+    finalize_metadata bugfix quick low testing false false false direct orchestrator self false
+    python3 - .git/pulmu/run.json <<'PY'
+import json, pathlib
+state = json.loads(pathlib.Path('.git/pulmu/run.json').read_text())
+assert state['schemaVersion'] == 2
+assert state['execution'] == {
+    'mode': 'direct', 'writer': 'orchestrator', 'review': 'self',
+    'testReview': False, 'securityReview': False, 'compatibilityReview': False,
+}
+PY
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    bash "$scripts/run-context.sh" set-stage hammer --expect-run-id "$run_id" >/dev/null
+    if bash "$scripts/run-context.sh" set-agents pulmu_smith --expect-run-id "$run_id" >/dev/null 2>&1; then exit 1; fi
+    printf '\n// direct fixture\n' >> src/task-store.js
+    quench_for_run >/dev/null
+    bash "$scripts/run-context.sh" set-stage hone --expect-run-id "$run_id" >/dev/null
+    candidate="$(cat .git/pulmu-metadata/quench_fingerprint)"
+    if metadata_for_run review-attempt --role pulmu_reviewer --candidate "$candidate" >/dev/null 2>&1; then exit 1; fi
+    metadata_for_run review-attempt --role pulmu_self_review --candidate "$candidate" >/dev/null
+    metadata_for_run review --role pulmu_self_review --candidate "$candidate" --completion complete --severity none \
+      --findings 'Direct self-review found no blocking issue.' --evidence 'Exact candidate and passing check inspected.' --limitations 'Not independent.' >/dev/null
+    metadata_for_run hone --result pass >/dev/null
+    metadata_for_run delivery --title 'fix: verify direct adaptive execution' \
+      --summary 'Exercises a low-risk direct run with explicit self-review.' \
+      --change 'Adds the direct execution fixture' >/dev/null
+    out="$(ship_for_run --delivery local)"
+    grep -Fq 'PULMU_EXECUTION=direct' <<<"$out" || exit 1
+    grep -Fq 'PULMU_WRITER=orchestrator' <<<"$out" || exit 1
+    grep -Fq 'PULMU_REVIEW=self' <<<"$out" || exit 1
+    python3 -c 'import json; state=json.load(open(".git/pulmu/run.json")); assert state["status"] == "completed" and state["git"]["commit"]'
+
+    for scenario in medium_self full_self reviewed_smith direct_test delegated_self; do
+      repo="$tmp/$scenario"; mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"; cd "$repo"
+      git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
+      git add . && git commit -m init >/dev/null
+      slug="${scenario//_/-}"
+      bash "$scripts/ignite.sh" --type feature --slug "$slug" "Reject $scenario policy" >/dev/null
+      run_id="$(cat .git/pulmu-metadata/run_id)"
+      bash "$scripts/run-context.sh" set-stage inspect --expect-run-id "$run_id" >/dev/null
+      bash "$scripts/run-context.sh" set-stage shape --expect-run-id "$run_id" >/dev/null
+      args=(--type feature --forge quick --risk low --areas backend --pattern false --security-review false --compatibility-review false)
+      case "$scenario" in
+        medium_self) args+=(--risk medium --execution direct --writer orchestrator --review-mode self --test-review false) ;;
+        full_self) args+=(--forge full --execution direct --writer orchestrator --review-mode self --test-review false) ;;
+        reviewed_smith) args+=(--execution reviewed --writer pulmu_smith --review-mode independent --test-review false) ;;
+        direct_test) args+=(--execution direct --writer orchestrator --review-mode self --test-review true) ;;
+        delegated_self) args+=(--execution delegated --writer orchestrator --review-mode self --test-review false) ;;
+      esac
+      if bash "$scripts/metadata.sh" finalize "${args[@]}" --expect-run-id "$run_id" >/dev/null 2>&1; then exit 1; fi
+      python3 -c 'import json; state=json.load(open(".git/pulmu/run.json")); assert state["execution"] is None and state["stage"]["current"] == "shape"'
+      [[ "$(cat .git/pulmu-metadata/status)" == provisional ]] || exit 1
+    done
+  ) || status=$?
+  rm -rf "$tmp"; return "$status"
+}
+
+replan_policy_test() {
+  local tmp repo scripts status run_id
+  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
+  (
+    cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
+    git add . && git commit -m init >/dev/null
+    bash "$scripts/ignite.sh" --type feature --slug replan-policy 'Preserve work during adaptive replan' >/dev/null
+    finalize_metadata feature standard low backend false false false reviewed orchestrator independent true
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    printf '\n// preserved replan fixture\n' >> src/task-store.js
+    quench_for_run >/dev/null
+    bash "$scripts/run-context.sh" increment-retry quench --expect-run-id "$run_id" >/dev/null
+    quench_for_run >/dev/null
+    bash "$scripts/run-context.sh" set-stage hone --expect-run-id "$run_id" >/dev/null
+    record_review_results
+    metadata_for_run hone --result pass >/dev/null
+    [[ -f .git/pulmu-metadata/hone_fingerprint && -f .git/pulmu-reviews/pulmu_reviewer.json ]] || exit 1
+    bash "$scripts/run-context.sh" replan --reason 'A public compatibility constraint was discovered' --expect-run-id "$run_id" >/dev/null
+    grep -Fq 'preserved replan fixture' src/task-store.js || exit 1
+    python3 - .git/pulmu/run.json "$run_id" <<'PY'
+import json, pathlib, sys
+state = json.loads(pathlib.Path(sys.argv[1]).read_text())
+assert state['runId'] == sys.argv[2] and state['stage'] == {'current': 'shape', 'status': 'in_progress'}
+assert state['forge'] is None and state['risk'] is None and state['execution'] is None
+assert state['retries'] == {'quench': 1, 'hone': 0} and state['agents']['active'] == []
+PY
+    [[ "$(cat .git/pulmu-metadata/status)" == provisional ]] || exit 1
+    [[ ! -e .git/pulmu-metadata/verification-plan && ! -e .git/pulmu-metadata/quench_fingerprint && ! -e .git/pulmu-metadata/hone_fingerprint ]] || exit 1
+    if find .git/pulmu-reviews -type f -print -quit 2>/dev/null | grep -q .; then exit 1; fi
+    if bash "$scripts/run-context.sh" set-stage hammer --expect-run-id "$run_id" >/dev/null 2>&1; then exit 1; fi
+    finalize_metadata feature full high backend false false true delegated pulmu_smith independent true
+    [[ "$(cat .git/pulmu-metadata/compatibility_review)" == true ]] || exit 1
+  ) || status=$?
+  rm -rf "$tmp"; return "$status"
+}
+
+schema_v1_execution_migration_test() {
+  local tmp repo scripts status run_id
+  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
+  (
+    cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
+    git add . && git commit -m init >/dev/null
+    bash "$scripts/ignite.sh" --type feature --slug v1-migration 'Migrate strict v1 execution policy' >/dev/null
+    run_id="$(cat .git/pulmu-metadata/run_id)"
+    finalize_metadata feature standard low backend false false true
+    python3 - .git/pulmu/run.json <<'PY'
+import json, pathlib
+path = pathlib.Path('.git/pulmu/run.json'); state = json.loads(path.read_text())
+state['schemaVersion'] = 1; state.pop('execution'); path.write_text(json.dumps(state))
+PY
+    rm .git/pulmu-metadata/execution_mode .git/pulmu-metadata/writer .git/pulmu-metadata/review_mode .git/pulmu-metadata/test_review
+    bash "$scripts/run-context.sh" set-stage hammer --expect-run-id "$run_id" >/dev/null
+    python3 - <<'PY'
+import json
+state=json.load(open('.git/pulmu/run.json'))
+assert state['schemaVersion'] == 2
+assert state['execution'] == {
+    'mode': 'delegated', 'writer': 'pulmu_smith', 'review': 'independent',
+    'testReview': True, 'securityReview': False, 'compatibilityReview': True,
+}
+PY
+    printf '\n// migrated v1 fixture\n' >> src/task-store.js
+    quench_for_run >/dev/null
+    bash "$scripts/run-context.sh" set-stage hone --expect-run-id "$run_id" >/dev/null
+    record_review_results
+    metadata_for_run hone --result pass >/dev/null
+    [[ -f .git/pulmu-reviews/pulmu_reviewer.json && -f .git/pulmu-reviews/pulmu_test_reviewer.json && -f .git/pulmu-reviews/pulmu_compat_reviewer.json ]] || exit 1
+    python3 - .git/pulmu/run.json <<'PY'
+import json, pathlib
+path = pathlib.Path('.git/pulmu/run.json'); state = json.loads(path.read_text())
+state['schemaVersion'] = 1; state['unexpected'] = True; state.pop('execution'); path.write_text(json.dumps(state))
+PY
+    if bash "$scripts/run-context.sh" show >/dev/null 2>&1; then exit 1; fi
+  ) || status=$?
+  rm -rf "$tmp"; return "$status"
+}
+
 run_context_worktree_test() {
   local tmp repo linked scripts status
   tmp="$(mktemp -d)"; repo="$tmp/repo"; linked="$tmp/linked"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
@@ -1457,6 +1734,7 @@ run_test 'Quench requires and consumes a bounded verification plan' quench_plan_
 run_test 'stale Quench cannot publish over a successor attempt' quench_stale_publication_test
 run_test 'installer lays out skill and agents' installer_test
 run_test 'uninstaller removes skill and all Pulmu agents' uninstaller_test
+run_test 'project-local install and removal preserve unrelated configuration' local_installation_test
 run_test 'demo repository packages all Pulmu agents' demo_packaging_test
 run_test 'agent TOMLs preserve routing and single-writer contracts' agent_contract_test
 run_test 'skill preserves seven stages with conditional Pattern' skill_contract_test
@@ -1475,6 +1753,10 @@ run_test 'legacy active branches bootstrap Run Context before metadata finalizat
 run_test 'legacy metadata cannot replace a terminal Run Context' legacy_terminal_context_test
 run_test 'stale metadata and Ship processes cannot mutate a newer run' stale_run_guard_test
 run_test 'Ignite reports the Python Run Context runtime requirement clearly' python_preflight_test
+run_test 'branch names use optional namespaces and recorded provenance' branch_naming_policy_test
+run_test 'adaptive execution binds writer and review assurance' adaptive_execution_policy_test
+run_test 'explicit replan preserves work and invalidates stale evidence' replan_policy_test
+run_test 'schema v1 migrates only through the strict legacy shape' schema_v1_execution_migration_test
 
 printf '\nPulmu tests: %s passed, %s failed\n' "$PASS" "$FAIL"
 [[ "$FAIL" -eq 0 ]]

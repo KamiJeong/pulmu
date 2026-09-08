@@ -1,10 +1,10 @@
 # Forge modes
 
-Forge mode controls depth and agent routing, not stage presence. Select a provisional mode during Ignite so Inspect can use the correct scouts. Inspect evidence may escalate the mode before Shape completes; do not downgrade after mode-specific agents have run.
+Forge mode records investigation and risk depth, not stage presence or a fixed agent team. Select the final mode during Shape from the Orchestrator's inspection and any focused scout evidence. It is independent from `direct`, `reviewed`, and `delegated` execution.
 
 `🎨 Pattern` is independent of forge mode. Run it inside Shape whenever Inspect finds meaningful user-facing design impact, even in Quick Forge, and keep its depth proportional to the task. Skip it in any mode when the change has no meaningful user-facing design effect. Read `design-pass.md` only when Pattern runs.
 
-Read `agent-orchestration.md` for the authoritative mode-by-stage agent matrix and model/effort policy.
+Read `agent-orchestration.md` only when a role will actually be spawned.
 
 ## Quick Forge
 
@@ -15,7 +15,7 @@ Use for narrowly scoped, low-risk work such as:
 - straightforward tests
 - local refactors with no public contract change
 
-Inspect uses Explorer, Shape stays with the Orchestrator unless Architect is warranted, Hammer uses Smith, and Hone uses Reviewer plus Design Reviewer when Pattern ran. Designer still runs when Pattern is required. All seven stages still run.
+The Orchestrator may perform Inspect, Shape, Hammer, and self-review directly with no agents when the execution policy is valid. Focused agents remain available when separate evidence is useful. All seven stages still run for the development change.
 
 ## Standard Forge
 
@@ -26,7 +26,7 @@ Default for normal features and non-trivial fixes:
 - API integration without breaking contracts
 - meaningful state/data-flow changes
 
-Inspect uses Explorer and Test Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone uses Reviewer and Test Reviewer, plus Design Reviewer when Pattern ran.
+Use enough repository and verification evidence to cover the affected behavior. Standard often benefits from a Test Scout, Architect, or Test Reviewer, but none is required merely by the label. The explicit `testReview` routing flag decides whether Hone requires the Test Reviewer.
 
 ## Full Forge
 
@@ -40,7 +40,7 @@ Use when any of these are present:
 - large dependency/framework migration
 - high blast radius or uncertain rollback
 
-Inspect adds Risk Scout. Shape uses Architect and conditional Designer. Hammer uses Smith. Hone adds Security, Compatibility, or Design Reviewers only when their triggers apply. Shape must address compatibility, rollout/migration, rollback, and security where relevant. Quench should use all meaningful available checks. A high-risk Full Forge GitHub delivery ships as draft by default when repository policy enables it; Full Forge alone does not force every PR to be a draft.
+Full requires fresh independent review and enough evidence to address compatibility, rollout/migration, rollback, and security where relevant. A Risk Scout or Architect is useful when those questions benefit from independent context. Explicit security and compatibility flags require their specialist reviewers regardless of whether the recorded Forge mode is Quick, Standard, or Full. Quench should use all meaningful available checks. A high-risk Full Forge GitHub delivery ships as draft by default when repository policy enables it; Full Forge alone does not force every PR to be a draft.
 
 ## Classification principle
 

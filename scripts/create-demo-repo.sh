@@ -12,9 +12,7 @@ fi
 
 mkdir -p "$TARGET"
 cp -R "$ROOT/examples/task-store/." "$TARGET/"
-mkdir -p "$TARGET/.agents/skills" "$TARGET/.codex/agents"
-cp -R "$ROOT/.agents/skills/pulmu" "$TARGET/.agents/skills/pulmu"
-cp "$ROOT/.codex/agents/"pulmu-*.toml "$TARGET/.codex/agents/"
+bash "$ROOT/install.sh" --local "$TARGET" >/dev/null
 cp "$ROOT/.codex/config.toml" "$TARGET/.codex/config.toml"
 
 cd "$TARGET"

@@ -33,11 +33,11 @@ For an ordinary checkout this appears as `.git/pulmu/run.json`. Linked worktrees
 
 `scripts/run-context.py` is the standard-library state engine. `scripts/run-context.sh` is its stable Bash entrypoint. Every mutation holds an exclusive lock, validates the complete schema, and uses an atomic same-directory replace with owner-only permissions. Reads reject malformed state and symlinks. `init` may quarantine a malformed current file under `runs/corrupt-*.json`; ordinary mutations fail closed.
 
-## Schema version 1
+## Schema version 2
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "workflow": "pulmu",
   "pulmuVersion": "0.2.0",
   "runId": "20260827T091500Z-a1b2c3d4e5f6",
@@ -47,13 +47,21 @@ For an ordinary checkout this appears as `.git/pulmu/run.json`. Linked worktrees
   "risk": "medium",
   "areas": ["frontend", "design"],
   "pattern": true,
+  "execution": {
+    "mode": "reviewed",
+    "writer": "orchestrator",
+    "review": "independent",
+    "testReview": true,
+    "securityReview": false,
+    "compatibilityReview": false
+  },
   "stage": { "current": "hammer", "status": "in_progress" },
   "git": {
     "baseBranch": "main",
-    "branch": "pulmu/feat/user-search",
+    "branch": "feat/user-search",
     "commit": null
   },
-  "agents": { "active": ["pulmu_smith"] },
+  "agents": { "active": [] },
   "retries": { "quench": 0, "hone": 0 },
   "startedAt": "2026-08-27T09:15:00Z",
   "updatedAt": "2026-08-27T09:18:00Z",
@@ -64,7 +72,9 @@ For an ordinary checkout this appears as `.git/pulmu/run.json`. Linked worktrees
 }
 ```
 
-Before Shape finalizes metadata, `forge` and `risk` are `null`, `areas` is empty, and `pattern` is `false`. `sync-metadata` copies the finalized type, forge, risk, areas, Pattern flag, and branch provenance; it never re-infers them.
+Before Shape finalizes metadata, `forge`, `risk`, and `execution` are `null`, `areas` is empty, and `pattern` is `false`. `sync-metadata` copies the finalized task, execution, review-routing, and branch fields; it never re-infers them. Security and compatibility flags live in both canonical metadata and Run Context, so editing a metadata file cannot silently change required reviewers.
+
+The runtime accepts strict schema v1 states and migrates them to the equivalent legacy policy (`delegated`, `pulmu_smith`, `independent`, with the former Forge-based Test Reviewer behavior). Unexpected v1 fields or invalid values still fail closed. The next mutation persists schema v2.
 
 The only top-level stages are `ignite`, `inspect`, `shape`, `hammer`, `quench`, `hone`, and `ship`. Pattern remains nested inside Shape. Run status is `running`, `completed`, `failed`, or `interrupted`.
 
@@ -79,7 +89,7 @@ bash <skill>/scripts/run-context.sh set-agents pulmu_explorer pulmu_test_scout -
 bash <skill>/scripts/run-context.sh set-agents --expect-run-id "$RUN_ID"
 ```
 
-The expected-run-ID guard prevents a delayed agent or command from mutating a newer run. Metadata and Ship operations require the ID returned by Ignite, and every Run Context mutation they perform passes it through. Agent names are recorded before agents start and cleared after they finish. At minimum, Hammer records `pulmu_smith`; read-only parallel groups should also be recorded when practical.
+The expected-run-ID guard prevents a delayed agent or command from mutating a newer run. Metadata and Ship operations require the ID returned by Ignite, and every Run Context mutation they perform passes it through. Agent names are recorded before agents start and cleared after they finish. Hammer records `pulmu_smith` only when Smith is the designated writer; an Orchestrator writer is represented by `execution.writer`, not a fake agent entry.
 
 Stage mutations admit only the current stage or the next stage in the seven-stage order and require the expected run ID. Hammer requires finalized Shape metadata and its verification plan; Hone requires current Quench evidence; Ship requires Quench, Hone, and delivery evidence for the current candidate.
 
@@ -91,6 +101,8 @@ Hone finding:  hone → increment hone → hammer → quench → hone
 ```
 
 The limits are three Quench fixes and two Hone refinements for the entire run. Reworded or repeated failures do not create a new budget.
+
+When new evidence changes finalized scope or risk, `replan --reason <concise reason>` returns the same running context to Shape. It preserves the branch, task files, run ID, and consumed retry counts; clears active agents; and invalidates finalized routing, verification, review, and delivery evidence. Shape must then finalize a new internally consistent policy before Hammer resumes.
 
 Run Context completion does not weaken Ship. Local delivery completes only after the reviewed local commit exists. GitHub delivery completes only after Ship obtains a validated pull-request URL and matching PR number. A terminal run records Ship as completed, clears active agents, records the commit and optional PR, sets `completedAt`, and writes a history snapshot.
 
@@ -111,6 +123,7 @@ set-stage <stage>
 set-agents [agent...]
 sync-metadata <canonical metadata>
 increment-retry <quench|hone>
+replan --reason <concise reason>
 quench-evidence <begin|pass> <run/candidate identity>
 verification-plan --plan <file>
 review-attempt --role <role> --candidate <fingerprint>
@@ -130,4 +143,4 @@ For a human-readable debug view, run:
 bash <skill>/scripts/pulmu-status.sh
 ```
 
-External observability tools should read `run.json` as the contract. It exposes workflow identity, run ID, lifecycle status, sanitized task metadata, Forge mode, risk, areas, Pattern use, current stage, active agents, retry counts, Git branch/commit, timestamps, concise failure information, and the validated PR URL when one exists.
+External observability tools should read `run.json` as the contract. It exposes workflow identity, run ID, lifecycle status, sanitized task metadata, Forge mode, risk, areas, Pattern use, execution path, designated writer, review assurance and routing flags, current stage, active agents, retry counts, Git branch/commit, timestamps, concise failure information, and the validated PR URL when one exists.

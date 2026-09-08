@@ -6,15 +6,17 @@ source "$SCRIPT_DIR/common.sh"
 
 TYPE="${PULMU_TASK_TYPE:-feature}"
 SLUG_OVERRIDE=""
+BRANCH_OVERRIDE=""
 while [[ $# -gt 1 ]]; do
   case "$1" in
     --type) TYPE="${2:-}"; shift 2 ;;
     --slug) SLUG_OVERRIDE="${2:-}"; shift 2 ;;
+    --branch) BRANCH_OVERRIDE="${2:-}"; [[ -n "$BRANCH_OVERRIDE" ]] || pulmu_die "--branch requires a name"; shift 2 ;;
     *) pulmu_die "unknown ignite option: $1" ;;
   esac
 done
 TASK="${1:-}"
-[[ -n "$TASK" ]] || pulmu_die "usage: ignite.sh [--type <type>] [--slug <slug>] '<task>'"
+[[ -n "$TASK" ]] || pulmu_die "usage: ignite.sh [--type <type>] [--slug <slug>] [--branch <name>] '<task>'"
 pulmu_task_type_valid "$TYPE" || pulmu_die "Ignite task type must be feature, bugfix, refactor, docs, test, or chore"
 
 pulmu_require git
@@ -64,26 +66,18 @@ if [[ "$PULMU_GITHUB_CREATE_PR" == "true" ]] && pulmu_github_ready; then
   DELIVERY="github"
 fi
 
-if [[ "$CURRENT" == "$PULMU_GIT_BRANCH_PREFIX/"* ]]; then
-  MIRROR_BASE="$(sed -n '1p' "$GIT_DIR/pulmu-base" 2>/dev/null || true)"
-  MIRROR_BRANCH="$(sed -n '1p' "$GIT_DIR/pulmu-branch" 2>/dev/null || true)"
-  [[ -n "$MIRROR_BASE" && "$MIRROR_BRANCH" == "$CURRENT" ]] || pulmu_die "active Pulmu branch has missing or ambiguous Ignite provenance"
-  CANONICAL_BRANCH="$(pulmu_metadata_read branch 2>/dev/null || true)"
-  CANONICAL_BASE="$(pulmu_metadata_read base_branch 2>/dev/null || true)"
-  if [[ "$CANONICAL_BRANCH" == "$CURRENT" ]]; then
-    [[ -n "$CANONICAL_BASE" && "$CANONICAL_BASE" == "$MIRROR_BASE" ]] ||
-      pulmu_die "active Pulmu branch provenance conflicts with canonical metadata"
-  fi
-  pulmu_ref_exists "$MIRROR_BASE" || pulmu_die "recorded Pulmu base branch does not exist: $MIRROR_BASE"
-  BASE="$MIRROR_BASE"
-else
-  BASE="$(pulmu_base_branch)"
-fi
+BASE="$(pulmu_base_branch)"
 
 SLUG="${SLUG_OVERRIDE:-$(pulmu_slug "$TASK")}"
 [[ "$SLUG" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || pulmu_die "Ignite slug must be lowercase kebab-case"
 PREFIX="$(pulmu_task_type_prefix "$TYPE")"
-BRANCH="$(pulmu_unique_branch "$PULMU_GIT_BRANCH_PREFIX/$PREFIX/$SLUG")"
+BRANCH_NAME="${PULMU_GIT_BRANCH_PREFIX:+$PULMU_GIT_BRANCH_PREFIX/}$PREFIX/$SLUG"
+if [[ -n "$BRANCH_OVERRIDE" ]]; then BRANCH_NAME="$BRANCH_OVERRIDE"; fi
+# --branch accepts checkout shorthands; validate a literal heads ref instead.
+[[ "$BRANCH_NAME" != -* ]] && git check-ref-format "refs/heads/$BRANCH_NAME" >/dev/null 2>&1 &&
+  git check-ref-format --branch "$BRANCH_NAME" >/dev/null 2>&1 ||
+  pulmu_die "invalid work branch name: $BRANCH_NAME"
+BRANCH="$(pulmu_unique_branch "$BRANCH_NAME")"
 
 RUN_CONTEXT_OUTPUT="$(pulmu_run_context init \
   --task-type "$TYPE" --task "$TASK" --base "$BASE" --branch "$BRANCH")"

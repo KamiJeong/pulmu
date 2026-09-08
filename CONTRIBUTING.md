@@ -16,7 +16,7 @@ Create a focused branch from the current default branch. Keep unrelated edits ou
 ## Make and verify changes
 
 - Keep `$pulmu` as the single public command and the seven forge stages stable.
-- Preserve `pulmu_smith` as the only application, source, or test writer.
+- Preserve one designated application/source/test writer per run: the Orchestrator or `pulmu_smith`.
 - Prefer deterministic shell scripts for Git, verification, and pull-request mechanics.
 - Update documentation and tests when behavior or contracts change.
 - Run `./tests/test.sh` after changing Pulmu scripts or contracts.

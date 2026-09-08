@@ -2,44 +2,36 @@
 
 ## Product sentence
 
-Pulmu turns one Codex CLI task prompt into a reviewed local commit, with optional GitHub pull request delivery.
+Pulmu assesses a coding request, then uses the smallest credible one-writer path to produce a verified local commit with explicit review assurance and optional GitHub delivery.
 
-## Core metaphor
+## Core model
 
-`$pulmu` is the command that starts the entire smithy.
-Ignite / Inspect / Shape / Hammer / Quench / Hone / Ship are the forge stages inside it.
-
-## Multi-agent orchestration
+`$pulmu` is the only public command. Advice and no-change results finish before Ignite. Actual development keeps the seven internal stages and stable presentation.
 
 ```text
-Orchestrator
-  ↓
-Scouts
-  ↓
-Architect / Designer
-  ↓
-Smith
-  ↓
-Quench
-  ↓
-Independent Reviewers
-  ↓
-Ship
+Necessity assessment
+  ├─ no change → evidence-backed answer
+  └─ development → Ignite → Inspect → Shape
+                                  ├─ direct
+                                  ├─ reviewed
+                                  └─ delegated
+                                       ↓
+                         one designated writer
+                                       ↓
+                         Quench → Hone → Ship
 ```
 
-Orchestrator decides. Scouts investigate. Architect and Designer shape. Smith forges. Quench verifies. Reviewers inspect. Ship delivers.
-
-- The main Codex session orchestrates the seven stages and never competes with Smith for task-file writes.
-- `pulmu_smith` is the only application/source/test writer and remains responsible for retry fixes.
-- Scouts, Architect, Designer, Failure Analyst, and Reviewers are read-only.
-- Independent read-only work may run in parallel; writer work never does.
-- Pattern remains conditional and nested inside Shape.
-- Ignite, deterministic Quench verification, and Ship use no subagent.
+- The Orchestrator owns routing, transitions, consolidation, retries, and delivery.
+- The Orchestrator or `pulmu_smith` is designated as the single task-file writer.
+- Tiny low-risk work may use no subagents; medium/high risk requires fresh independent review.
+- Security and compatibility flags require their specialist reviewers regardless of Forge depth.
+- Pattern remains conditional inside Shape and may be owned by the Orchestrator; Designer is optional.
+- Replan preserves work and run identity while invalidating stale routing and evidence.
+- Quench and Ship remain deterministic and candidate-bound.
 
 ## Next likely work
 
-1. Run real Codex CLI E2E and tighten instructions where the model skips/duplicates a stage.
-2. Persist structured stage events for Agent Observatory.
-3. Add repository-specific verification policy overrides (`.pulmu.toml`).
-4. Add worktree-per-run mode.
-5. Package Pulmu as a distributable Codex/ChatGPT plugin once the skill contract is stable.
+1. Run real Codex CLI E2E cases for direct, reviewed, delegated, no-change, and design-choice requests.
+2. Compare token use, elapsed time, defect findings, and human correction time across paths.
+3. Persist structured stage events for Agent Observatory.
+4. Add repository-specific verification policy overrides.

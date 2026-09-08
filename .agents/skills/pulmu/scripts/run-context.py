@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 WORKFLOW = "pulmu"
 VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
 DEFAULT_PULMU_VERSION = VERSION_FILE.read_text(encoding="utf-8").strip()
@@ -42,8 +42,11 @@ AREA_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 PR_URL_RE = re.compile(r"^https://[^\s/]+(?:/[^\s/]+){2}/pull/([0-9]+)$")
 REVIEW_ROLES = {
     "pulmu_reviewer", "pulmu_test_reviewer", "pulmu_security_reviewer",
-    "pulmu_compat_reviewer", "pulmu_design_reviewer",
+    "pulmu_compat_reviewer", "pulmu_design_reviewer", "pulmu_self_review",
 }
+EXECUTION_MODES = {"direct", "reviewed", "delegated"}
+WRITERS = {"orchestrator", "pulmu_smith"}
+REVIEW_MODES = {"self", "independent"}
 
 
 class ContextError(RuntimeError):
@@ -159,7 +162,7 @@ class Store:
                 os.close(fd)
                 raise ContextError("Run Context is not a regular file")
             with os.fdopen(fd, "r", encoding="utf-8") as handle:
-                state = json.load(handle)
+                state = migrate_state(json.load(handle), self.root.parent / "pulmu-metadata")
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ContextError(f"Run Context is malformed: {exc}") from exc
         validate_state(state)
@@ -241,14 +244,72 @@ def is_iso_timestamp(value: Any) -> bool:
         return False
 
 
-def validate_state(state: Any) -> None:
-    expect(isinstance(state, dict), "Run Context root must be an object")
-    required = {
+def migrate_state(state: Any, metadata: Path | None = None) -> Any:
+    """Upgrade strict schema v1 to the legacy-equivalent v2 policy."""
+    if not isinstance(state, dict) or state.get("schemaVersion") != 1:
+        return state
+    v1_fields = {
         "schemaVersion", "workflow", "pulmuVersion", "runId", "status", "task", "forge",
         "risk", "areas", "pattern", "stage", "git", "agents", "retries", "startedAt",
         "updatedAt", "completedAt", "interruptedAt", "pr", "error",
     }
-    expect(set(state) == required, "Run Context fields do not match schema version 1")
+    expect(set(state) == v1_fields, "Run Context fields do not match schema version 1")
+    migrated = dict(state)
+    migrated["schemaVersion"] = 2
+    security_review = False
+    compatibility_review = False
+    if metadata is not None:
+        for name, target in (("security_review", "security"), ("compatibility_review", "compatibility")):
+            path = metadata / name
+            value = path.read_text(encoding="utf-8").strip() if path.is_file() else "false"
+            if target == "security":
+                security_review = value == "true"
+            else:
+                compatibility_review = value == "true"
+    migrated["execution"] = ({
+        "mode": "delegated",
+        "writer": "pulmu_smith",
+        "review": "independent",
+        "testReview": migrated.get("forge") in {"standard", "full"},
+        "securityReview": security_review,
+        "compatibilityReview": compatibility_review,
+    } if migrated.get("forge") is not None else None)
+    return migrated
+
+
+def validate_execution(execution: Any, risk: str | None, forge: str | None) -> None:
+    fields = {"mode", "writer", "review", "testReview", "securityReview", "compatibilityReview"}
+    expect(isinstance(execution, dict) and set(execution) == fields, "invalid Run Context execution policy")
+    mode, writer, review = execution["mode"], execution["writer"], execution["review"]
+    expect(isinstance(mode, str) and isinstance(writer, str) and isinstance(review, str)
+           and mode in EXECUTION_MODES and writer in WRITERS and review in REVIEW_MODES,
+           "invalid Run Context execution policy value")
+    expect(all(isinstance(execution[name], bool)
+               for name in ("testReview", "securityReview", "compatibilityReview")),
+           "invalid Run Context review routing flag")
+    if mode == "direct":
+        expect(writer == "orchestrator" and review == "self" and risk == "low",
+               "direct execution requires an Orchestrator writer, self-review, and low risk")
+        expect(not execution["testReview"], "direct execution cannot claim an independent test review")
+        expect(not execution["securityReview"] and not execution["compatibilityReview"],
+               "specialist review cannot use the direct self-review path")
+    elif mode == "reviewed":
+        expect(writer == "orchestrator" and review == "independent",
+               "reviewed execution requires an Orchestrator writer and independent review")
+    else:
+        expect(review == "independent", "delegated execution requires independent review")
+    if risk in {"medium", "high"} or forge == "full":
+        expect(review == "independent", "medium/high risk and Full Forge require independent review")
+
+
+def validate_state(state: Any) -> None:
+    expect(isinstance(state, dict), "Run Context root must be an object")
+    required = {
+        "schemaVersion", "workflow", "pulmuVersion", "runId", "status", "task", "forge",
+        "risk", "areas", "pattern", "execution", "stage", "git", "agents", "retries", "startedAt",
+        "updatedAt", "completedAt", "interruptedAt", "pr", "error",
+    }
+    expect(set(state) == required, "Run Context fields do not match schema version 2")
     expect(state["schemaVersion"] == SCHEMA_VERSION, "unsupported Run Context schemaVersion")
     expect(state["workflow"] == WORKFLOW, "Run Context workflow must be pulmu")
     expect(isinstance(state["pulmuVersion"], str) and 0 < len(state["pulmuVersion"]) <= 32, "invalid Pulmu version")
@@ -265,6 +326,13 @@ def validate_state(state: Any) -> None:
     expect(all(isinstance(area, str) and AREA_RE.fullmatch(area) for area in state["areas"]), "invalid Run Context area")
     expect(len(set(state["areas"])) == len(state["areas"]), "duplicate Run Context area")
     expect(isinstance(state["pattern"], bool), "invalid Run Context Pattern flag")
+    if state["forge"] is None:
+        expect(state["risk"] is None and state["areas"] == [] and state["pattern"] is False
+               and state["execution"] is None,
+               "provisional Run Context cannot have finalized task or execution policy")
+    else:
+        expect(state["risk"] is not None, "finalized Run Context requires risk")
+        validate_execution(state["execution"], state["risk"], state["forge"])
 
     stage = state["stage"]
     expect(isinstance(stage, dict) and set(stage) == {"current", "status"}, "invalid Run Context stage")
@@ -418,10 +486,22 @@ def require_final_metadata(store: Store, state: dict[str, Any]) -> Path:
         "run_id": state["runId"], "task_type": state["task"]["type"],
         "forge": state["forge"], "risk": state["risk"],
         "areas": ",".join(state["areas"]), "pattern": str(state["pattern"]).lower(),
+        "execution_mode": state["execution"]["mode"],
+        "writer": state["execution"]["writer"],
+        "review_mode": state["execution"]["review"],
+        "test_review": str(state["execution"]["testReview"]).lower(),
+        "security_review": str(state["execution"]["securityReview"]).lower(),
+        "compatibility_review": str(state["execution"]["compatibilityReview"]).lower(),
         "base_branch": state["git"]["baseBranch"], "branch": state["git"]["branch"],
     }
+    legacy_defaults = {
+        "execution_mode": "delegated", "writer": "pulmu_smith", "review_mode": "independent",
+        "test_review": "true" if state["forge"] in {"standard", "full"} else "false",
+    }
     for name, value in expected.items():
-        expect(value is not None and metadata_value(metadata, name) == value,
+        path = metadata / name
+        actual = metadata_value(metadata, name) if path.is_file() else legacy_defaults.get(name)
+        expect(value is not None and actual == value,
                f"finalized metadata conflicts with Run Context: {name}")
     return metadata
 
@@ -468,12 +548,15 @@ def require_ship_commit(store: Store, state: dict[str, Any], commit: str) -> Pat
 
 
 def required_reviewers(state: dict[str, Any], metadata: Path) -> list[str]:
+    execution = state["execution"]
+    if execution["review"] == "self":
+        return ["pulmu_self_review"]
     roles = ["pulmu_reviewer"]
-    if state["forge"] in {"standard", "full"}:
+    if execution["testReview"]:
         roles.append("pulmu_test_reviewer")
-    if state["forge"] == "full" and metadata_value(metadata, "security_review") == "true":
+    if execution["securityReview"]:
         roles.append("pulmu_security_reviewer")
-    if state["forge"] == "full" and metadata_value(metadata, "compatibility_review") == "true":
+    if execution["compatibilityReview"]:
         roles.append("pulmu_compat_reviewer")
     if state["pattern"]:
         roles.append("pulmu_design_reviewer")
@@ -535,6 +618,7 @@ def command_init(store: Store, args: argparse.Namespace) -> int:
             "risk": None,
             "areas": [],
             "pattern": False,
+            "execution": None,
             "stage": {"current": "ignite", "status": "in_progress"},
             "git": {"baseBranch": concise(args.base, 512), "branch": concise(args.branch, 512), "commit": None},
             "agents": {"active": []},
@@ -593,7 +677,19 @@ def command_set_agents(store: Store, args: argparse.Namespace) -> int:
     for agent in unique:
         expect(AGENT_RE.fullmatch(agent) is not None, f"invalid Pulmu agent name: {agent}")
     expect(len(unique) <= 16, "too many active agents")
-    state = mutate(store, args.expect_run_id, lambda item: item["agents"].update(active=unique))
+    def update(item: dict[str, Any]) -> None:
+        execution = item["execution"]
+        if "pulmu_smith" in unique:
+            expect(execution is not None and execution["writer"] == "pulmu_smith",
+                   "pulmu_smith is not the designated writer for this run")
+            expect(item["stage"]["current"] == "hammer", "pulmu_smith can be active only during Hammer")
+        if item["stage"]["current"] == "hone" and execution is not None:
+            metadata = require_final_metadata(store, item)
+            allowed = set(required_reviewers(item, metadata)) - {"pulmu_self_review"}
+            expect(set(unique) <= allowed, "active Hone agents conflict with the review policy")
+        item["agents"].update(active=unique)
+
+    state = mutate(store, args.expect_run_id, update)
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_AGENTS={','.join(unique)}")
     return 0
 
@@ -603,13 +699,22 @@ def command_sync_metadata(store: Store, args: argparse.Namespace) -> int:
     expect(0 < len(areas) <= 3 and len(set(areas)) == len(areas), "metadata requires one to three unique areas")
     expect(all(AREA_RE.fullmatch(area) for area in areas), "invalid metadata area")
     pattern = args.pattern == "true"
+    execution = {
+        "mode": args.execution,
+        "writer": args.writer,
+        "review": args.review,
+        "testReview": args.test_review == "true",
+        "securityReview": args.security_review == "true",
+        "compatibilityReview": args.compatibility_review == "true",
+    }
+    validate_execution(execution, args.risk, args.forge)
 
     def update(state: dict[str, Any]) -> None:
         expect(state["stage"]["current"] == "shape", "task metadata can be finalized only during Shape")
         expect(state["task"]["type"] == args.task_type, "Run Context task type conflicts with finalized metadata")
         expect(state["git"]["baseBranch"] == args.base, "Run Context base branch conflicts with finalized metadata")
         expect(state["git"]["branch"] == args.branch, "Run Context branch conflicts with finalized metadata")
-        state.update(forge=args.forge, risk=args.risk, areas=areas, pattern=pattern)
+        state.update(forge=args.forge, risk=args.risk, areas=areas, pattern=pattern, execution=execution)
 
     state = mutate(store, args.expect_run_id, update)
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_METADATA=synchronized")
@@ -640,6 +745,43 @@ def command_increment_retry(store: Store, args: argparse.Namespace) -> int:
         touch(state)
         store.write(state)
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_RETRY_{args.stage.upper()}={state['retries'][args.stage]}")
+    return 0
+
+
+def command_replan(store: Store, args: argparse.Namespace) -> int:
+    reason = concise(args.reason, 500)
+    expect(bool(reason), "replan requires a concise reason")
+    with store.lock():
+        state = read_required(store)
+        require_running(state, args.expect_run_id)
+        expect(state["stage"]["current"] in {"shape", "hammer", "quench", "hone"},
+               "replan is available only after Inspect and before Ship")
+        metadata = store.root.parent / "pulmu-metadata"
+        expect(metadata_value(metadata, "run_id") == state["runId"],
+               "metadata runId conflicts with Run Context")
+        state.update(forge=None, risk=None, areas=[], pattern=False, execution=None)
+        state["stage"] = {"current": "shape", "status": "in_progress"}
+        state["agents"]["active"] = []
+        for name in (
+            "forge", "risk", "areas", "pattern", "execution_mode", "writer", "review_mode",
+            "test_review", "security_review", "compatibility_review", "quench_fingerprint",
+            "hone_fingerprint", "delivery_fingerprint", "quench_attempt", "candidate_tree",
+            "candidate_head", "candidate_branch", "candidate_base", "candidate_base_head",
+            "title", "summary", "risk_reason",
+        ):
+            (metadata / name).unlink(missing_ok=True)
+        for name in ("verification-plan", "changes", "review-focus", "paths.z"):
+            (metadata / name).unlink(missing_ok=True)
+        atomic_text(metadata / "status", "provisional\n")
+        (store.root.parent / "pulmu-quench.log").unlink(missing_ok=True)
+        reviews = store.root.parent / "pulmu-reviews"
+        if reviews.is_dir():
+            for result in reviews.iterdir():
+                if result.is_file() and not result.is_symlink():
+                    result.unlink()
+        touch(state)
+        store.write(state)
+    print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_STAGE=shape\nPULMU_REPLAN_REASON={reason}")
     return 0
 
 
@@ -986,6 +1128,11 @@ def command_show(store: Store, args: argparse.Namespace) -> int:
     print(f"Status   {state['status']}")
     print(f"Run      {state['runId']}")
     print(f"Forge    {state['forge'].title() if state['forge'] else 'Pending'}")
+    execution = state["execution"]
+    if execution:
+        print(f"Path     {execution['mode']} · writer {execution['writer']} · review {execution['review']}")
+    else:
+        print("Path     Pending")
     print(f"Stage    {STAGE_ICONS[state['stage']['current']]}")
     print(f"Task     {state['task']['prompt']}")
     print(f"Branch   {state['git']['branch']}")
@@ -1015,10 +1162,18 @@ def parser() -> argparse.ArgumentParser:
     metadata.add_argument("--risk", choices=sorted(RISKS), required=True)
     metadata.add_argument("--areas", required=True)
     metadata.add_argument("--pattern", choices=("true", "false"), required=True)
+    metadata.add_argument("--execution", choices=sorted(EXECUTION_MODES), required=True)
+    metadata.add_argument("--writer", choices=sorted(WRITERS), required=True)
+    metadata.add_argument("--review", choices=sorted(REVIEW_MODES), required=True)
+    metadata.add_argument("--test-review", choices=("true", "false"), required=True)
+    metadata.add_argument("--security-review", choices=("true", "false"), required=True)
+    metadata.add_argument("--compatibility-review", choices=("true", "false"), required=True)
     metadata.add_argument("--base", required=True)
     metadata.add_argument("--branch", required=True)
     retry = sub.add_parser("increment-retry")
     retry.add_argument("stage", choices=("quench", "hone"))
+    replan = sub.add_parser("replan")
+    replan.add_argument("--reason", required=True)
     quench = sub.add_parser("quench-evidence")
     quench.add_argument("action", choices=("begin", "pass"))
     quench.add_argument("--branch")
@@ -1059,7 +1214,7 @@ def parser() -> argparse.ArgumentParser:
     interrupt.add_argument("--message")
     show = sub.add_parser("show")
     show.add_argument("--format", choices=("json", "text"), default="json")
-    for command in (stage, agents, metadata, retry, quench, verification, review_attempt, review, review_check,
+    for command in (stage, agents, metadata, retry, replan, quench, verification, review_attempt, review, review_check,
                     complete, recover, validate_ship, fail, interrupt):
         command.add_argument("--expect-run-id", required=True)
     return result
@@ -1075,6 +1230,7 @@ def main() -> int:
         "set-agents": command_set_agents,
         "sync-metadata": command_sync_metadata,
         "increment-retry": command_increment_retry,
+        "replan": command_replan,
         "quench-evidence": command_quench_evidence,
         "verification-plan": command_verification_plan,
         "review-attempt": command_review_attempt,
