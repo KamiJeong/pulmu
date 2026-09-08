@@ -63,12 +63,14 @@ raise SystemExit(0 if actual == expected else 1)' "$task" "$type" "$base" "$bran
 
 case "$COMMAND" in
   finalize)
-    TYPE=""; FORGE=""; RISK=""; AREAS=""; PATTERN=""; SECURITY=""; COMPAT=""; EXPECT_RUN_ID=""
+    TYPE=""; FORGE=""; RISK=""; AREAS=""; PATTERN=""; SECURITY=""; COMPAT=""; EXECUTION=""; WRITER=""; REVIEW=""; TEST_REVIEW=""; EXPECT_RUN_ID=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --type) TYPE="${2:-}"; shift 2 ;; --forge) FORGE="${2:-}"; shift 2 ;; --risk) RISK="${2:-}"; shift 2 ;;
         --areas) AREAS="${2:-}"; shift 2 ;; --pattern) PATTERN="${2:-}"; shift 2 ;;
         --security-review) SECURITY="${2:-}"; shift 2 ;; --compatibility-review) COMPAT="${2:-}"; shift 2 ;;
+        --execution) EXECUTION="${2:-}"; shift 2 ;; --writer) WRITER="${2:-}"; shift 2 ;;
+        --review-mode) REVIEW="${2:-}"; shift 2 ;; --test-review) TEST_REVIEW="${2:-}"; shift 2 ;;
         --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;;
         *) pulmu_die "unknown metadata finalize option: $1" ;;
       esac
@@ -76,7 +78,28 @@ case "$COMMAND" in
     pulmu_task_type_valid "$TYPE" || pulmu_die "metadata --type must be feature, bugfix, refactor, docs, test, or chore"
     case "$FORGE" in quick|standard|full) ;; *) pulmu_die "metadata --forge must be quick, standard, or full" ;; esac
     case "$RISK" in low|medium|high) ;; *) pulmu_die "metadata --risk must be low, medium, or high" ;; esac
-    for boolean in "$PATTERN" "$SECURITY" "$COMPAT"; do [[ "$boolean" == "true" || "$boolean" == "false" ]] || pulmu_die "metadata review and Pattern flags must be true or false"; done
+    # Omitted routing fields preserve the pre-v2 Smith/independent behavior.
+    [[ -n "$EXECUTION" ]] || EXECUTION="delegated"
+    [[ -n "$WRITER" ]] || WRITER="pulmu_smith"
+    [[ -n "$REVIEW" ]] || REVIEW="independent"
+    if [[ -z "$TEST_REVIEW" ]]; then
+      if [[ "$FORGE" == "standard" || "$FORGE" == "full" ]]; then TEST_REVIEW="true"; else TEST_REVIEW="false"; fi
+    fi
+    case "$EXECUTION" in direct|reviewed|delegated) ;; *) pulmu_die "metadata --execution must be direct, reviewed, or delegated" ;; esac
+    case "$WRITER" in orchestrator|pulmu_smith) ;; *) pulmu_die "metadata --writer must be orchestrator or pulmu_smith" ;; esac
+    case "$REVIEW" in self|independent) ;; *) pulmu_die "metadata --review-mode must be self or independent" ;; esac
+    for boolean in "$PATTERN" "$SECURITY" "$COMPAT" "$TEST_REVIEW"; do [[ "$boolean" == "true" || "$boolean" == "false" ]] || pulmu_die "metadata review and Pattern flags must be true or false"; done
+    if [[ "$EXECUTION" == "direct" ]]; then
+      [[ "$WRITER" == "orchestrator" && "$REVIEW" == "self" && "$RISK" == "low" && "$FORGE" != "full" ]] || pulmu_die "direct execution requires an Orchestrator writer, self-review, low risk, and non-Full Forge"
+      [[ "$TEST_REVIEW" == "false" && "$SECURITY" == "false" && "$COMPAT" == "false" ]] || pulmu_die "direct execution cannot claim independent or specialist reviewers"
+    elif [[ "$EXECUTION" == "reviewed" ]]; then
+      [[ "$WRITER" == "orchestrator" && "$REVIEW" == "independent" ]] || pulmu_die "reviewed execution requires an Orchestrator writer and independent review"
+    else
+      [[ "$REVIEW" == "independent" ]] || pulmu_die "delegated execution requires independent review"
+    fi
+    if [[ "$RISK" == "medium" || "$RISK" == "high" || "$FORGE" == "full" ]]; then
+      [[ "$REVIEW" == "independent" ]] || pulmu_die "medium/high risk and Full Forge require independent review"
+    fi
     declare -a selected=()
     IFS=',' read -r -a requested <<< "$AREAS"
     if [[ "$PATTERN" == "true" ]]; then
@@ -103,7 +126,7 @@ case "$COMMAND" in
       legacy_branch="$(sed -n '1p' "$git_dir/pulmu-branch" 2>/dev/null || true)"
       legacy_base="$(sed -n '1p' "$git_dir/pulmu-base" 2>/dev/null || true)"
       legacy_task="$(sed -n '1p' "$git_dir/pulmu-task" 2>/dev/null || true)"
-      [[ -n "$legacy_base" && "$legacy_branch" == "$branch" && "$branch" == "$PULMU_GIT_BRANCH_PREFIX/"* ]] || pulmu_die "Ignite metadata is missing; run ignite.sh first"
+      [[ -n "$legacy_base" && "$legacy_branch" == "$branch" ]] || pulmu_die "Ignite metadata is missing; run ignite.sh first"
       pulmu_ref_exists "$legacy_base" || pulmu_die "recorded legacy base branch does not exist: $legacy_base"
       EXPECT_RUN_ID="$(pulmu_bootstrap_context "$legacy_task" "$TYPE" "$legacy_base" "$branch" "$EXPECT_RUN_ID")"
       pulmu_metadata_write version 1; pulmu_metadata_write status provisional; pulmu_metadata_write task "$legacy_task"
@@ -123,9 +146,19 @@ case "$COMMAND" in
     [[ -n "$mirror_branch" && "$mirror_branch" == "$(pulmu_metadata_read branch 2>/dev/null || true)" ]] || pulmu_die "canonical branch conflicts with .git/pulmu-branch"
     pulmu_ref_exists "$mirror_base" || pulmu_die "recorded Pulmu base branch does not exist: $mirror_base"
     if [[ "$existing_status" == "final" ]]; then
-      [[ "$(pulmu_metadata_read task_type)" == "$TYPE" && "$(pulmu_metadata_read forge)" == "$FORGE" && "$(pulmu_metadata_read risk)" == "$RISK" && "$(pulmu_metadata_read areas)" == "$AREAS" && "$(pulmu_metadata_read pattern)" == "$PATTERN" && "$(pulmu_metadata_read security_review)" == "$SECURITY" && "$(pulmu_metadata_read compatibility_review)" == "$COMPAT" ]] || pulmu_die "Pulmu task metadata is already finalized and cannot be re-inferred"
+      stored_execution="$(pulmu_metadata_read execution_mode 2>/dev/null || printf 'delegated\n')"
+      stored_writer="$(pulmu_metadata_read writer 2>/dev/null || printf 'pulmu_smith\n')"
+      stored_review="$(pulmu_metadata_read review_mode 2>/dev/null || printf 'independent\n')"
+      stored_test_review="$(pulmu_metadata_read test_review 2>/dev/null || true)"
+      if [[ -z "$stored_test_review" ]]; then
+        if [[ "$(pulmu_metadata_read forge)" == "standard" || "$(pulmu_metadata_read forge)" == "full" ]]; then stored_test_review="true"; else stored_test_review="false"; fi
+      fi
+      [[ "$(pulmu_metadata_read task_type)" == "$TYPE" && "$(pulmu_metadata_read forge)" == "$FORGE" && "$(pulmu_metadata_read risk)" == "$RISK" && "$(pulmu_metadata_read areas)" == "$AREAS" && "$(pulmu_metadata_read pattern)" == "$PATTERN" && "$(pulmu_metadata_read security_review)" == "$SECURITY" && "$(pulmu_metadata_read compatibility_review)" == "$COMPAT" && "$stored_execution" == "$EXECUTION" && "$stored_writer" == "$WRITER" && "$stored_review" == "$REVIEW" && "$stored_test_review" == "$TEST_REVIEW" ]] || pulmu_die "Pulmu task metadata is already finalized and cannot be re-inferred"
+      pulmu_metadata_write execution_mode "$EXECUTION"; pulmu_metadata_write writer "$WRITER"; pulmu_metadata_write review_mode "$REVIEW"; pulmu_metadata_write test_review "$TEST_REVIEW"
       pulmu_run_context sync-metadata \
         --type "$TYPE" --forge "$FORGE" --risk "$RISK" --areas "$AREAS" --pattern "$PATTERN" \
+        --execution "$EXECUTION" --writer "$WRITER" --review "$REVIEW" --test-review "$TEST_REVIEW" \
+        --security-review "$SECURITY" --compatibility-review "$COMPAT" \
         --base "$(pulmu_metadata_read base_branch)" --branch "$(pulmu_metadata_read branch)" \
         --expect-run-id "$EXPECT_RUN_ID" >/dev/null
       printf 'PULMU_METADATA_STATUS=final\nPULMU_RUN_ID=%s\n' "$EXPECT_RUN_ID"; exit 0
@@ -135,12 +168,15 @@ case "$COMMAND" in
     branch="$(git branch --show-current)"; [[ "$(pulmu_metadata_read branch)" == "$branch" ]] || pulmu_die "metadata branch does not match the current branch"
     pulmu_metadata_write task_type "$TYPE"; pulmu_metadata_write forge "$FORGE"; pulmu_metadata_write risk "$RISK"; pulmu_metadata_write areas "$AREAS"
     pulmu_metadata_write pattern "$PATTERN"; pulmu_metadata_write security_review "$SECURITY"; pulmu_metadata_write compatibility_review "$COMPAT"
+    pulmu_metadata_write execution_mode "$EXECUTION"; pulmu_metadata_write writer "$WRITER"; pulmu_metadata_write review_mode "$REVIEW"; pulmu_metadata_write test_review "$TEST_REVIEW"
     pulmu_run_context sync-metadata \
       --type "$TYPE" --forge "$FORGE" --risk "$RISK" --areas "$AREAS" --pattern "$PATTERN" \
+      --execution "$EXECUTION" --writer "$WRITER" --review "$REVIEW" --test-review "$TEST_REVIEW" \
+      --security-review "$SECURITY" --compatibility-review "$COMPAT" \
       --base "$(pulmu_metadata_read base_branch)" --branch "$(pulmu_metadata_read branch)" \
       --expect-run-id "$EXPECT_RUN_ID" >/dev/null
     pulmu_metadata_write status final
-    printf 'PULMU_METADATA_STATUS=final\nPULMU_RUN_ID=%s\nPULMU_TYPE=%s\nPULMU_FORGE=%s\nPULMU_RISK=%s\nPULMU_AREAS=%s\nPULMU_PATTERN=%s\n' "$EXPECT_RUN_ID" "$TYPE" "$FORGE" "$RISK" "$AREAS" "$PATTERN"
+    printf 'PULMU_METADATA_STATUS=final\nPULMU_RUN_ID=%s\nPULMU_TYPE=%s\nPULMU_FORGE=%s\nPULMU_RISK=%s\nPULMU_AREAS=%s\nPULMU_PATTERN=%s\nPULMU_EXECUTION=%s\nPULMU_WRITER=%s\nPULMU_REVIEW=%s\n' "$EXPECT_RUN_ID" "$TYPE" "$FORGE" "$RISK" "$AREAS" "$PATTERN" "$EXECUTION" "$WRITER" "$REVIEW"
     ;;
   verification)
     EXPECT_RUN_ID=""; declare -a CHECK_DIRS=() CHECK_COMMANDS=()

@@ -13,11 +13,15 @@ task:
   risk: medium
 areas: [frontend, design]
 pattern: true
+execution: reviewed
+writer: orchestrator
+review_mode: independent
+test_review: true
 security_review: false
 compatibility_review: false
 ```
 
-Supported types are `feature`, `bugfix`, `refactor`, `docs`, `test`, and `chore`. Forge is `quick`, `standard`, or `full`; risk is `low`, `medium`, or `high`. Areas are repository-specific lowercase slugs, normally chosen from frontend, backend, database, infra, security, design, api, and testing. Keep one to three relevant areas. Pattern adds `frontend` and `design`; a skipped Pattern never adds design metadata on its own.
+Supported types are `feature`, `bugfix`, `refactor`, `docs`, `test`, and `chore`. Forge is `quick`, `standard`, or `full`; risk is `low`, `medium`, or `high`. Execution is `direct`, `reviewed`, or `delegated`; writer is `orchestrator` or `pulmu_smith`; review mode is `self` or `independent`. Areas are repository-specific lowercase slugs. Keep one to three relevant areas. Pattern adds `frontend` and `design`; a skipped Pattern never adds design metadata on its own.
 
 Metadata drives review routing and delivery:
 
@@ -29,6 +33,7 @@ Pulmu Metadata
       +-- Risk
       +-- Area
       +-- Pattern
+      +-- Execution / Writer / Review
       |
       v
 📦 Ship
@@ -45,28 +50,34 @@ GitHub Pull Request
 
 ## Repository strategy and branches
 
-Base-branch precedence is:
+When the current branch matches saved Pulmu provenance, validate the recorded branch, base, and available run identity before using that base for a fresh task. Conflicting or incomplete matching records block Ignite. Existing branches are never renamed when naming policy changes.
+
+For a branch not identified by saved provenance, base-branch precedence is:
 
 1. an existing branch explicitly named by `.pulmu/config.toml`
 2. an existing branch explicitly named by repository `AGENTS.md` instructions
-3. the current non-Pulmu branch as the observed repository convention
+3. the current branch as the observed repository convention
 4. the GitHub default branch (or `origin/HEAD`)
 5. an existing `main`
 6. an existing `develop`
 
-Pulmu never creates a base branch or introduces a new Git Flow. New work branches use `pulmu/<type>/<short-kebab-slug>`, with `feature -> feat` and `bugfix -> fix`; other type names are unchanged. A local or remote collision receives the first available deterministic numeric suffix. A running run blocks a new Ignite. After a terminal run, Ignite may use the current Pulmu branch only to recover verified base provenance before creating a distinct task branch; it never reuses the prior task or evidence, and missing or conflicting provenance fails closed.
+Pulmu never creates a base branch or introduces a new Git Flow. Default work branches use `<type>/<short-kebab-slug>`, with `feature -> feat` and `bugfix -> fix`; other type names are unchanged. `git.branch_prefix = ""` is the default; setting it to `"pulmu"` opts into `pulmu/<type>/<slug>` (other simple namespaces are supported).
+
+The Orchestrator honors an explicit user name, then explicit repository naming instructions, before generating the default. It passes a complete nondefault name to Ignite with `--branch "<name>"`, overriding the configured namespace. Issue IDs are included when supplied or explicitly required; a few old branch names do not establish a rule. Names must be literal valid Git branch names. Local or remote collisions receive the first available deterministic numeric suffix, including for explicit names; the reported branch is authoritative.
+
+A running run blocks a new Ignite. After a terminal run, a matching saved branch uses verified base provenance to create a distinct task branch; it never reuses the prior task or evidence. A name beginning with `pulmu/` alone establishes no ownership, and legacy prefixed branches with valid saved records continue to work. If all provenance is absent, Pulmu treats the branch as ordinary; it does not reconstruct lost ownership from a name.
 
 ## Evidence and delivery metadata
 
-Shape records one or more concrete verification commands with repository-relative working directories. Quench executes that exact plan and records a PASS identity bound to the run ID, branch, base commit, HEAD, and candidate tree. An unavailable command, empty plan, timeout, failed check, or candidate mutation cannot produce PASS. After independent review receipts pass, the Orchestrator records Hone evidence for the same identity. It then creates delivery metadata from the final candidate: a meaningful Conventional Commit title, a user-oriented summary, concrete changes, optional risk reason, and review focus. The metadata helper records an exact changed-path manifest and fingerprint.
+Shape records one or more concrete verification commands with repository-relative working directories. Quench executes that exact plan and records a PASS identity bound to the run ID, branch, base commit, HEAD, and candidate tree. An unavailable command, empty plan, timeout, failed check, or candidate mutation cannot produce PASS. After the required self or independent review receipts pass, the Orchestrator records Hone evidence for the same identity. It then creates delivery metadata from the final candidate: a meaningful Conventional Commit title, a user-oriented summary, concrete changes, optional risk reason, and review focus. The metadata helper records an exact changed-path manifest and fingerprint.
 
-Ship starts only when finalized task metadata, exact Quench PASS evidence, complete non-blocking reviewer receipts/Hone evidence, and delivery metadata all describe the same candidate. Smith must leave the real index unchanged. Ship rejects any pre-existing staged content without changing it, stages only recorded paths, and requires the staged tree and resulting commit tree to equal the reviewed candidate before any successful delivery. The order is final-candidate inspection, delivery-metadata generation, staging, cohesive commit, normal push, existing-label discovery, PR creation or reuse, available-label application, and URL reporting. Existing PR lookup is constrained by both head and base; a same-base PR is reconciled to the canonical title and body, while a wrong-base PR is not reused. A GitHub delivery succeeds only with a real pull-request URL for the origin-derived repository. Ship never force-pushes, merges, assigns arbitrary people, or requests arbitrary reviewers. Existing CODEOWNERS and repository-side reviewer automation remain authoritative.
+Ship starts only when finalized task and execution metadata, exact Quench PASS evidence, complete non-blocking required receipts/Hone evidence, and delivery metadata all describe the same candidate. The designated writer leaves the real index unchanged. Ship rejects any pre-existing staged content without changing it, stages only recorded paths, and requires the staged tree and resulting commit tree to equal the reviewed candidate before any successful delivery. The order is final-candidate inspection, delivery-metadata generation, staging, cohesive commit, normal push, existing-label discovery, PR creation or reuse, available-label application, and URL reporting. Existing PR lookup is constrained by both head and base; a same-base PR is reconciled to the canonical title and body, while a wrong-base PR is not reused. A GitHub delivery succeeds only with a real pull-request URL for the origin-derived repository. Ship never force-pushes, merges, assigns arbitrary people, or requests arbitrary reviewers. Existing CODEOWNERS and repository-side reviewer automation remain authoritative.
 
 GitHub delivery requires exactly one supported `origin` fetch URL and push URL that resolve to the same host/owner/repository identity. Every GitHub CLI operation explicitly targets that repository, and the returned PR URL is checked against it. Pulmu does not automate a cross-repository pull request when `origin` is a personal fork and `upstream` is the canonical repository. Such repositories must either use the intended writable target as `origin`, or finish locally and perform the fork push and upstream pull request manually.
 
 Commit and PR titles use Conventional Commit style by default and describe the actual diff, not the original prompt. Use scope only when natural. Avoid vague titles such as `update`, `changes`, or `fix stuff`.
 
-The generated PR body contains Summary, Changes, Pulmu Forge, Verification, Risk, Review Focus, and Pulmu Metadata. Verification entries come from the actual Quench log; an unexecuted check is never shown as passed. A legacy `--body-file` is appended as supplemental context and can never replace these canonical sections. Pattern-specific review focus is included only when Pattern ran. High-risk Full Forge delivery is draft by default when configured; Full Forge alone does not force a draft.
+The generated PR body contains Summary, Changes, Pulmu Forge, Verification, Risk, Review Focus, and Pulmu Metadata. It identifies execution path, writer, and self versus independent review. Verification entries come from the actual Quench log; an unexecuted check is never shown as passed. A legacy `--body-file` is appended as supplemental context and can never replace these canonical sections. Pattern-specific review focus is included only when Pattern ran. High-risk Full Forge delivery is draft by default when configured; Full Forge alone does not force a draft.
 
 ## Labels
 
@@ -84,7 +95,7 @@ Pulmu uses safe defaults without a config. When present, `.pulmu/config.toml` su
 
 ```toml
 [git]
-branch_prefix = "pulmu"
+branch_prefix = ""
 base_branch = "main"
 conventional_commits = true
 

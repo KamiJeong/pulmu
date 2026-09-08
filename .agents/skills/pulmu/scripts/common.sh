@@ -50,7 +50,7 @@ pulmu_trim() {
 }
 
 pulmu_config_defaults() {
-  PULMU_GIT_BRANCH_PREFIX="pulmu"
+  PULMU_GIT_BRANCH_PREFIX=""
   PULMU_GIT_CONVENTIONAL_COMMITS="true"
   PULMU_GIT_BASE_BRANCH=""
   PULMU_GITHUB_CREATE_PR="true"
@@ -63,9 +63,10 @@ pulmu_config_defaults() {
 
 pulmu_config_assign() {
   local section="$1" key="$2" value="$3" file="$4" line_no="$5"
+  [[ -n "$value" || "$section.$key" == "git.branch_prefix" ]] || pulmu_die "$file:$line_no empty value is only supported for branch_prefix"
   case "$section.$key" in
     git.branch_prefix)
-      [[ "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || pulmu_die "$file:$line_no invalid branch_prefix"
+      [[ -z "$value" || "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || pulmu_die "$file:$line_no invalid branch_prefix"
       PULMU_GIT_BRANCH_PREFIX="$value"
       ;;
     git.base_branch)
@@ -101,7 +102,7 @@ pulmu_load_config() {
     [[ -n "$section" ]] || pulmu_die "$file:$line_no key outside a section"
     if [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*(true|false)[[:space:]]*(#.*)?$ ]]; then
       key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
-    elif [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*\"([A-Za-z0-9._/-]+)\"[[:space:]]*(#.*)?$ ]]; then
+    elif [[ "$line" =~ ^([a-z_]+)[[:space:]]*=[[:space:]]*\"([A-Za-z0-9._/-]*)\"[[:space:]]*(#.*)?$ ]]; then
       key="${BASH_REMATCH[1]}"; value="${BASH_REMATCH[2]}"
     else
       pulmu_die "$file:$line_no unsupported value; use a documented boolean or simple quoted string"
@@ -140,10 +141,48 @@ pulmu_github_default_branch() {
   return 1
 }
 
+# Return 0 with a verified recorded base, 1 for an unrecorded branch, or 2
+# for conflicting provenance. Naming conventions never establish ownership.
+pulmu_recorded_base() {
+  local current git_dir mirror_branch mirror_base canonical_branch canonical_base canonical_id
+  local state_json state_record state_branch="" state_base="" state_id="" state_valid="false"
+  current="$(git branch --show-current)"; [[ -n "$current" ]] || return 1
+  git_dir="$(pulmu_git_dir)"
+  mirror_branch="$(sed -n '1p' "$git_dir/pulmu-branch" 2>/dev/null || true)"
+  mirror_base="$(sed -n '1p' "$git_dir/pulmu-base" 2>/dev/null || true)"
+  canonical_branch="$(pulmu_metadata_read branch 2>/dev/null || true)"
+  canonical_base="$(pulmu_metadata_read base_branch 2>/dev/null || true)"
+  canonical_id="$(pulmu_metadata_read run_id 2>/dev/null || true)"
+  if state_json="$(pulmu_run_context show 2>/dev/null)"; then
+    state_record="$(python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["git"]["branch"] or ""); print(s["git"]["baseBranch"] or ""); print(s["runId"])' <<<"$state_json")" || return 2
+    state_branch="$(sed -n '1p' <<<"$state_record")"
+    state_base="$(sed -n '2p' <<<"$state_record")"
+    state_id="$(sed -n '3p' <<<"$state_record")"
+    state_valid="true"
+  fi
+  [[ "$mirror_branch" == "$current" || "$canonical_branch" == "$current" || "$state_branch" == "$current" ]] || return 1
+  if [[ "$mirror_branch" != "$current" || -z "$mirror_base" ]] ||
+     { [[ -n "$canonical_branch" || -n "$canonical_base" || -n "$canonical_id" ]] && [[ "$canonical_branch" != "$current" || "$canonical_base" != "$mirror_base" ]]; } ||
+     { [[ "$state_valid" == "true" ]] && [[ "$state_branch" != "$current" || "$state_base" != "$mirror_base" || ( -n "$canonical_id" && "$canonical_id" != "$state_id" ) ]]; } ||
+     { [[ "$state_valid" == "false" ]] && [[ -e "$git_dir/pulmu/run.json" || -n "$canonical_id" ]]; }; then
+    printf '✗ recorded branch has missing or conflicting Pulmu provenance\n' >&2
+    return 2
+  fi
+  if ! pulmu_ref_exists "$mirror_base"; then
+    printf '✗ recorded Pulmu base branch does not exist: %s\n' "$mirror_base" >&2
+    return 2
+  fi
+  printf '%s\n' "$mirror_base"
+}
+
 pulmu_base_branch() {
-  local root current candidate base
+  local root current candidate base recorded="" status
   root="$(pulmu_repo_root)"
   pulmu_load_config "$root"
+  if recorded="$(pulmu_recorded_base)"; then :; else
+    status=$?; [[ "$status" -eq 1 ]] || return "$status"
+  fi
+  if [[ -n "$recorded" ]]; then printf '%s\n' "$recorded"; return; fi
   if [[ -n "$PULMU_GIT_BASE_BRANCH" ]]; then
     pulmu_ref_exists "$PULMU_GIT_BASE_BRANCH" || pulmu_die "configured base branch does not exist: $PULMU_GIT_BASE_BRANCH"
     printf '%s\n' "$PULMU_GIT_BASE_BRANCH"; return
@@ -151,7 +190,7 @@ pulmu_base_branch() {
   candidate="$(pulmu_instruction_base_branch "$root" || true)"
   if [[ -n "$candidate" ]]; then printf '%s\n' "$candidate"; return; fi
   current="$(git branch --show-current)"
-  if [[ -n "$current" && "$current" != "$PULMU_GIT_BRANCH_PREFIX/"* ]]; then printf '%s\n' "$current"; return; fi
+  if [[ -n "$current" ]]; then printf '%s\n' "$current"; return; fi
   candidate="$(pulmu_github_default_branch || true)"
   if [[ -n "$candidate" ]]; then printf '%s\n' "$candidate"; return; fi
   for base in main develop; do
@@ -209,7 +248,7 @@ pulmu_unique_branch() {
 
 pulmu_metadata_dir() { printf '%s/pulmu-metadata\n' "$(pulmu_git_dir)"; }
 pulmu_metadata_key_valid() {
-  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|candidate_tree|candidate_head|candidate_branch|candidate_base|candidate_base_head|quench_fingerprint|hone_fingerprint|delivery_fingerprint|github_repo) return 0 ;; *) return 1 ;; esac
+  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|execution_mode|writer|review_mode|test_review|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|candidate_tree|candidate_head|candidate_branch|candidate_base|candidate_base_head|quench_fingerprint|hone_fingerprint|delivery_fingerprint|github_repo) return 0 ;; *) return 1 ;; esac
 }
 pulmu_metadata_write() {
   local key="$1" value="$2" dir tmp

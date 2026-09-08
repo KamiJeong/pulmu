@@ -52,6 +52,9 @@ if [[ -n "$TITLE_OVERRIDE" && "$TITLE_OVERRIDE" != "$TITLE" ]]; then
   pulmu_die "Ship title must match the generated delivery metadata"
 fi
 [[ -f "$METADATA_DIR/changes" && -f "$METADATA_DIR/paths.z" ]] || pulmu_die "Ship delivery metadata is incomplete"
+EXECUTION_MODE="$(pulmu_metadata_read execution_mode 2>/dev/null || printf 'delegated\n')"
+WRITER="$(pulmu_metadata_read writer 2>/dev/null || printf 'pulmu_smith\n')"
+REVIEW_MODE="$(pulmu_metadata_read review_mode 2>/dev/null || printf 'independent\n')"
 SUPPLEMENTAL_BODY_FILE="$BODY_FILE"
 if [[ -n "$SUPPLEMENTAL_BODY_FILE" ]]; then
   [[ -f "$SUPPLEMENTAL_BODY_FILE" ]] || pulmu_die "supplemental PR body file does not exist: $SUPPLEMENTAL_BODY_FILE"
@@ -144,6 +147,9 @@ printf 'PULMU_COMMIT=%s\n' "$COMMIT"
 printf 'PULMU_BRANCH=%s\n' "$BRANCH"
 printf 'PULMU_BASE=%s\n' "$BASE"
 printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"
+printf 'PULMU_EXECUTION=%s\n' "$EXECUTION_MODE"
+printf 'PULMU_WRITER=%s\n' "$WRITER"
+printf 'PULMU_REVIEW=%s\n' "$REVIEW_MODE"
 
 if [[ "$DELIVERY" == "local" ]]; then
   pulmu_run_context complete --delivery local --commit "$COMMIT" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
@@ -202,7 +208,13 @@ if [[ "$DELIVERY" == "github" ]]; then
     printf '| 🔥 Ignite | %s Forge |\n' "$(pulmu_display_enum "$FORGE")"
     printf '| 🔎 Inspect | Complete |\n'
     if [[ "$PATTERN" == "true" ]]; then printf '| 📐 Shape | Pattern used |\n'; else printf '| 📐 Shape | Pattern skipped |\n'; fi
-    printf '| 🔨 Hammer | Complete |\n| 🌊 Quench | PASS |\n| 🪨 Hone | PASS |\n| 📦 Ship | Ready |\n'
+    printf '| 🔨 Hammer | Complete (%s) |\n| 🌊 Quench | PASS |\n' "$WRITER"
+    if [[ "$REVIEW_MODE" == "self" ]]; then
+      printf '| 🪨 Hone | Self-review PASS |\n'
+    else
+      printf '| 🪨 Hone | Independent review PASS |\n'
+    fi
+    printf '| 📦 Ship | Ready |\n'
     printf '\n## Verification\n\n'
     if [[ -f "$GIT_DIR/pulmu-quench.log" ]] && grep -q '^✓ ' "$GIT_DIR/pulmu-quench.log"; then
       while IFS= read -r item; do printf -- '- %s\n' "$item"; done < <(grep '^✓ ' "$GIT_DIR/pulmu-quench.log")
@@ -217,7 +229,7 @@ if [[ "$DELIVERY" == "github" ]]; then
     else
       printf -- '- Correctness and regression risk in the changed paths\n'
     fi
-    printf '\n## Pulmu Metadata\n\n- Forge: %s\n- Type: %s\n- Areas: %s\n' "$(pulmu_display_enum "$FORGE")" "$(pulmu_display_enum "$(pulmu_metadata_read task_type)")" "$(pulmu_metadata_read areas | sed 's/,/, /g')"
+    printf '\n## Pulmu Metadata\n\n- Forge: %s\n- Execution: %s\n- Writer: %s\n- Review: %s\n- Type: %s\n- Areas: %s\n' "$(pulmu_display_enum "$FORGE")" "$EXECUTION_MODE" "$WRITER" "$REVIEW_MODE" "$(pulmu_display_enum "$(pulmu_metadata_read task_type)")" "$(pulmu_metadata_read areas | sed 's/,/, /g')"
     if [[ -n "$SUPPLEMENTAL_BODY_FILE" ]]; then
       printf '\n## Additional Context\n\n'
       sed -n '1,200p' "$SUPPLEMENT_COPY"

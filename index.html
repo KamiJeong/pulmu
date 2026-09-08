@@ -8,7 +8,7 @@
   <link rel="canonical" href="https://kamijeong.github.io/pulmu/">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23361b10' stroke='%23b84d24' stroke-width='2'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='34' fill='%23ff7838'%3E%E7%81%AB%3C/text%3E%3C/svg%3E">
   <meta property="og:title" content="Pulmu — One command starts the whole smithy">
-  <meta property="og:description" content="A reviewed Codex CLI workflow from task prompt to local commit and optional GitHub pull request.">
+  <meta property="og:description" content="An adaptive Codex CLI workflow from task assessment to verified local commit and optional GitHub pull request.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kamijeong.github.io/pulmu/">
   <meta property="og:site_name" content="Pulmu">
@@ -16,7 +16,7 @@
   <meta property="og:image:alt" content="Pulmu, a traditional smithy-inspired workflow for Codex CLI">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Pulmu — One command starts the whole smithy">
-  <meta name="twitter:description" content="A reviewed Codex CLI workflow from task prompt to local commit and optional GitHub pull request.">
+  <meta name="twitter:description" content="An adaptive Codex CLI workflow from task assessment to verified local commit and optional GitHub pull request.">
   <meta name="twitter:image" content="https://kamijeong.github.io/pulmu/assets/pulmu-joseon-forge.png">
   <meta name="twitter:image:alt" content="Pulmu, a traditional smithy-inspired workflow for Codex CLI">
   <title>Pulmu — One command starts the whole smithy</title>
@@ -823,6 +823,19 @@
       font-size: 0.9rem;
     }
 
+    .install-details pre {
+      max-width: 100%;
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid var(--border);
+      font-size: 0.85rem;
+    }
+
+    .install-details summary {
+      cursor: pointer;
+      color: var(--text);
+    }
+
     .trust-list {
       display: flex;
       flex-wrap: wrap;
@@ -1301,7 +1314,7 @@
       <div class="hero-copy">
         <p class="eyebrow">Codex CLI workflow</p>
         <h1 id="hero-title">One command starts the whole smithy.</h1>
-        <p class="hero-lede">Pulmu turns a coding task into a visible, disciplined forge—from repository inspection to a reviewed local commit, with GitHub delivery when it is ready.</p>
+        <p class="hero-lede">Pulmu first checks whether a change is useful, then selects the smallest credible path from repository inspection to a verified local commit, with GitHub delivery when it is ready.</p>
         <div class="hero-actions">
           <div class="hero-action-buttons">
             <a class="button button-primary" href="#install">Install Pulmu <span aria-hidden="true">→</span></a>
@@ -1398,16 +1411,36 @@
         <div>
           <span class="section-number">01 / QUICK START</span>
           <h2 id="install-title">Bring the smithy into Codex.</h2>
-          <p class="install-intro">Clone Pulmu and run its installer. The skill and specialist agent definitions are copied into your Codex configuration.</p>
+          <p class="install-intro">Download Pulmu, then choose where to install it: one project or all projects for your user. Local installation preserves your existing project configuration.</p>
         </div>
         <div class="install-details">
           <p class="install-prerequisites"><strong>Prerequisites:</strong> Git, Bash, Python 3.10+, and Codex CLI.</p>
-          <div class="command-strip install-command" aria-label="Pulmu installation command">
-            <code id="install-command">git clone https://github.com/KamiJeong/pulmu.git &amp;&amp; cd pulmu &amp;&amp; ./install.sh</code>
+          <p class="install-next"><strong>1. Download</strong> into a new <code>pulmu</code> directory:</p>
+          <div class="command-strip install-command" aria-label="Pulmu download command">
+            <code id="install-command">git clone https://github.com/KamiJeong/pulmu.git &amp;&amp; cd pulmu</code>
             <button class="copy-button" type="button" id="copy-install-command" data-copy-target="#install-command" data-copy-status="#install-copy-status" aria-describedby="install-copy-status">Copy</button>
           </div>
           <span class="sr-only" id="install-copy-status" role="status" aria-live="polite"></span>
-          <p class="install-next">Restart Codex, open a repository, then run <code>$pulmu "Your task"</code>. For updates, configuration, and uninstall steps, <a href="https://github.com/KamiJeong/pulmu#quick-start">read the setup guide</a>.</p>
+          <p class="install-next"><strong>2. Choose one scope</strong> from the downloaded Pulmu directory. Replace <code>/path/to/project</code> with your existing Git repository.</p>
+          <p class="install-next">This project only:</p>
+          <pre><code>./install.sh --local /path/to/project</code></pre>
+          <p class="install-next">All projects for your user:</p>
+          <pre><code>./install.sh --global</code></pre>
+          <p class="install-next">Local files go into the target project's <code>.agents/skills/pulmu</code> and <code>.codex/agents</code>. Commit them for team use or locally exclude the new, untracked files before starting. Installing locally does not remove an existing global copy.</p>
+          <p class="install-next"><strong>3. Start</strong> Codex in your target project:</p>
+          <pre><code>cd /path/to/project
+codex</code></pre>
+          <p class="install-next">Inside Codex, enter <code>$pulmu "Your task"</code>. Restart Codex if the skill does not appear.</p>
+          <details class="install-next">
+            <summary>Update or uninstall</summary>
+            <p>Return to your downloaded Pulmu directory. Update a local installation:</p>
+            <pre><code>git pull --ff-only
+./install.sh --local /path/to/project</code></pre>
+            <p>Remove a local installation:</p>
+            <pre><code>./uninstall.sh --local /path/to/project</code></pre>
+            <p>For the user-wide copy, use <code>./install.sh --global</code> or <code>./uninstall.sh --global</code>. Repeat local updates or removal for each installed project. Uninstalling preserves the downloaded source, project work, and run history. Restart Codex after removal.</p>
+          </details>
+          <p class="install-next">Full setup, Git preparation, and removal guidance: <a href="https://github.com/KamiJeong/pulmu#quick-start">English guide</a> · <a href="https://github.com/KamiJeong/pulmu/blob/main/README.ko.md" lang="ko">한국어 가이드</a>.</p>
           <ul class="trust-list" aria-label="Pulmu project status">
             <li><a href="https://github.com/KamiJeong/pulmu/releases/tag/v0.3.0">v0.3.0</a></li>
             <li><a href="https://github.com/KamiJeong/pulmu/actions/workflows/ci.yml">CI passing · Linux + macOS</a></li>
@@ -1436,12 +1469,12 @@
           <article class="principle">
             <span class="principle-index">02</span>
             <h3>One steady hammer</h3>
-            <p>A single Smith owns task files while independent specialists explore, design, diagnose, and review.</p>
+            <p>One designated writer—the main session or Smith—owns task files. Specialists join only when their independent evidence helps.</p>
           </article>
           <article class="principle">
             <span class="principle-index">03</span>
             <h3>Proof before delivery</h3>
-            <p>Verification must pass and important review findings must be resolved before Pulmu creates the final commit.</p>
+            <p>Verification must pass and the declared self or independent review must clear important findings before Pulmu creates the final commit.</p>
           </article>
         </div>
       </div>
@@ -1450,8 +1483,8 @@
     <section class="shell outcome" aria-labelledby="outcome-title">
       <div class="outcome-copy">
         <span class="section-number">03 / THE OUTCOME</span>
-        <h2 id="outcome-title">A calmer path from intent to reviewed code.</h2>
-        <p>Use the default path for a local reviewed commit. When the repository and GitHub access are ready, the same workflow can prepare the pull request without changing the seven-stage vocabulary.</p>
+        <h2 id="outcome-title">A calmer path from intent to verified code.</h2>
+        <p>Small low-risk work can stay in one context; higher-risk work receives fresh independent review. When the repository and GitHub access are ready, the same workflow can prepare the pull request without changing the seven-stage vocabulary.</p>
       </div>
       <ul class="outcome-list" aria-label="Pulmu workflow qualities">
         <li><span aria-hidden="true">✓</span> Stage progress stays visible from Ignite through Ship.</li>
