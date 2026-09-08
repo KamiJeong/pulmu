@@ -4,14 +4,34 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-08
+
+### Added
+
+- Project-local installation and removal with `--local <project>`, explicit `--global`, preservation of unrelated configuration, and rollback on replacement failure.
+- Pre-Ignite necessity assessment and advisory/no-change completion without creating development state or empty commits.
+- Direct, reviewed, and delegated execution paths with one recorded writer and explicit self or independent review assurance.
+- Product-level design direction proposals with viewable same-content alternatives and named design-system candidates.
+- Complete Korean usage documentation alongside the primary English README, plus download, installation, update, and removal guidance on Pages.
+
 ### Changed
 
-- Added project-local installation and removal with `--local <project>`, explicit `--global`, preservation of unrelated configuration, rollback on replacement failure, and bilingual setup guidance.
-- Default work branches now use `feat/<slug>`, `fix/<slug>`, and other task types without a tool namespace. An optional `git.branch_prefix` and explicit `--branch` preserve team naming, while ownership and base recovery use saved provenance rather than a prefix.
-- Added a pre-Ignite necessity assessment and honest advisory/no-change completion.
-- Added direct, reviewed, and delegated execution paths with one recorded writer and explicit self or independent review assurance.
-- Added schema v2 routing state, strict v1 migration, explicit replan, specialist review independent of Forge depth, and routing details in delivery output.
-- Added product-level design direction selection with viewable same-content alternatives and curated public-example discovery guidance.
+- Run Context schema v2 records execution routing and supports strict v1 migration and explicit replanning that invalidates stale evidence.
+- Medium/high-risk work requires independent review, and explicit security or compatibility risk requires specialist review regardless of Forge depth.
+- Default work branches use task types such as `feat/<slug>` and `fix/<slug>`. Optional `git.branch_prefix` and explicit `--branch` support team conventions; base recovery uses saved provenance instead of a prefix.
+- Demo packaging reuses the project-local installer.
+
+### Fixed
+
+- Local installation tests compare canonical paths and exercise symlinked project paths, including macOS temporary-directory aliases.
+
+### Compatibility
+
+- `$pulmu` remains the single public command. All development paths preserve the seven stages and conditional Pattern; advisory/no-change requests finish before Ignite.
+- A run can designate the main Orchestrator or `pulmu_smith` as its sole writer. Low-risk direct work can use self-checks, which are reported separately from independent review.
+- Existing branches are not renamed. Supported v1 Run Context migrates through strict validation.
+- No-argument installation remains current-user-wide. Local installation neither removes a global copy nor changes project `config.toml` or Git ignore rules. Commit or locally exclude newly installed files before starting a development run.
+- Reinstallation replaces Pulmu-managed copies; keep customizations in the maintained source checkout.
 
 ## [0.3.0] - 2026-09-07
 
