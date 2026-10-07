@@ -4,6 +4,8 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-07
+
 ### Changed
 
 - Move bounded repository/test scouts to GPT-6 Luna and implementation, design, analysis, and reviewers to GPT-6.1 Sol. Smith and Designer use medium effort; critical analysis and review retain high effort.
@@ -22,6 +24,13 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 - Resolve remote-only base refs consistently across branching, verification, and delivery while retaining logical PR base names.
 - Reopen hook-mutated Ship candidates for fresh verification and full-diff review, preserving commits and staged content; reuse clean verified commits without duplication.
 - Keep required clarification pending instead of marking failure; assign disposable preview rendering to the Orchestrator and honor settled design choices.
+
+### Compatibility
+
+- Preserve `$pulmu`, the seven stages, conditional Pattern, one designated writer, and required independent/specialist reviews.
+- Run Context remains schema v2. Existing candidate fingerprints stay compatible; hook recovery additionally binds the original review origin and requires fresh verification and review.
+- Reinstall existing project-local or global copies and start a new Codex session to load the updated instructions and agent definitions. Installation does not grant access to the configured models.
+- Live end-to-end token savings and speed improvements remain unmeasured; benchmark fixtures validate reporting behavior only.
 
 ## [0.4.0] - 2026-09-08
 
