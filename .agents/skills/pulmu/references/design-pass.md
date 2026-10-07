@@ -21,7 +21,7 @@ Skip Pattern for backend-only or API-only changes, infrastructure, CI/CD, test-o
 
 Inspect and reuse the repository's components, design tokens, typography, spacing, color usage, layout and icon conventions, interaction patterns, Storybook or design system, and Tailwind/CSS/UI framework conventions. Do not introduce a new visual language without a clear product reason.
 
-When no coherent product-level visual and experience direction exists, read [design-selection.md](design-selection.md). Existing Tailwind, component-library, or token foundations may still be reused. Recommend a product-appropriate direction instead of asking the user to invent design terminology. Offer two same-content representative choices only when the direction is consequential.
+Use the direction accepted or delegated during necessity assessment. When no coherent product-level visual and experience direction exists and the choice is still unresolved, read [design-selection.md](design-selection.md). Existing Tailwind, component-library, or token foundations may still be reused. Designer supplies an implementable brief or direction specifications; the Orchestrator owns disposable previews and user questions. Do not repeat an already settled comparison.
 
 ### Information hierarchy
 

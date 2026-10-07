@@ -114,8 +114,23 @@ pulmu_load_config() {
 }
 
 pulmu_ref_exists() {
-  local branch="$1"
-  git show-ref --verify --quiet "refs/heads/$branch" || git show-ref --verify --quiet "refs/remotes/origin/$branch"
+  pulmu_resolve_base "$1" >/dev/null
+}
+
+# Keep the logical PR base name separate from its locally available Git ref.
+pulmu_resolve_base() {
+  local branch="$1" ref
+  for ref in "refs/heads/$branch" "refs/remotes/origin/$branch"; do
+    if git show-ref --verify --quiet "$ref" && git rev-parse --verify "$ref^{commit}" >/dev/null 2>&1; then
+      printf '%s\n' "$ref"; return 0
+    fi
+  done
+  return 1
+}
+pulmu_base_head() {
+  local ref
+  ref="$(pulmu_resolve_base "$1")" || pulmu_die "base branch does not exist: $1"
+  git rev-parse --verify "$ref^{commit}"
 }
 
 pulmu_instruction_base_branch() {
@@ -248,7 +263,7 @@ pulmu_unique_branch() {
 
 pulmu_metadata_dir() { printf '%s/pulmu-metadata\n' "$(pulmu_git_dir)"; }
 pulmu_metadata_key_valid() {
-  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|execution_mode|writer|review_mode|test_review|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|candidate_tree|candidate_head|candidate_branch|candidate_base|candidate_base_head|quench_fingerprint|hone_fingerprint|delivery_fingerprint|github_repo) return 0 ;; *) return 1 ;; esac
+  case "$1" in version|status|run_id|task|task_type|forge|risk|areas|pattern|execution_mode|writer|review_mode|test_review|security_review|compatibility_review|base_branch|branch|slug|title|summary|risk_reason|candidate_tree|candidate_head|candidate_review_head|candidate_branch|candidate_base|candidate_base_head|quench_fingerprint|hone_fingerprint|delivery_fingerprint|github_repo) return 0 ;; *) return 1 ;; esac
 }
 pulmu_metadata_write() {
   local key="$1" value="$2" dir tmp
@@ -287,18 +302,22 @@ pulmu_candidate_tree() (
   printf '%s\n' "$tree"
 )
 pulmu_candidate_identity() {
-  local run_id="$1" branch="$2" base="$3" base_head="$4" head="$5" tree="$6"
-  printf 'run=%s\nbranch=%s\nbase=%s\nbase_head=%s\nhead=%s\ntree=%s\n' "$run_id" "$branch" "$base" "$base_head" "$head" "$tree" | git hash-object --stdin
+  local run_id="$1" branch="$2" base="$3" base_head="$4" head="$5" tree="$6" review_head="${7:-$5}"
+  {
+    printf 'run=%s\nbranch=%s\nbase=%s\nbase_head=%s\nhead=%s\ntree=%s\n' "$run_id" "$branch" "$base" "$base_head" "$head" "$tree"
+    if [[ "$review_head" != "$head" ]]; then printf 'review_head=%s\n' "$review_head"; fi
+  } | git hash-object --stdin
 }
 pulmu_changed_fingerprint() {
-  local run_id branch base base_head head tree
+  local run_id branch base base_head head tree review_head
   run_id="$(pulmu_metadata_read run_id 2>/dev/null || true)"
   branch="$(git branch --show-current)"
   base="$(pulmu_metadata_read base_branch 2>/dev/null || true)"
-  base_head="$(git rev-parse "$base")"
+  base_head="$(pulmu_base_head "$base")"
   head="$(git rev-parse HEAD)"
   tree="$(pulmu_candidate_tree)"
-  pulmu_candidate_identity "$run_id" "$branch" "$base" "$base_head" "$head" "$tree"
+  review_head="$(pulmu_run_context review-origin --head "$head" --expect-run-id "$run_id")" || return 1
+  pulmu_candidate_identity "$run_id" "$branch" "$base" "$base_head" "$head" "$tree" "$review_head"
 }
 pulmu_evidence_matches() {
   local key="$1" expected actual

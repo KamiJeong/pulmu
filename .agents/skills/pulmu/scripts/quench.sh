@@ -20,8 +20,9 @@ GIT_DIR="$(pulmu_git_dir)"; METADATA_DIR="$(pulmu_metadata_dir)"
 [[ "$(pulmu_metadata_read run_id 2>/dev/null || true)" == "$EXPECT_RUN_ID" ]] || pulmu_die "Quench metadata runId changed; refusing stale operation"
 BRANCH="$(git branch --show-current)"; BASE="$(pulmu_metadata_read base_branch)"
 [[ "$BRANCH" == "$(pulmu_metadata_read branch)" ]] || pulmu_die "Quench branch does not match finalized metadata"
-HEAD_COMMIT="$(git rev-parse HEAD)"; BASE_HEAD="$(git rev-parse "$BASE")"; CANDIDATE_TREE="$(pulmu_candidate_tree)"
-CANDIDATE_ID="$(pulmu_candidate_identity "$EXPECT_RUN_ID" "$BRANCH" "$BASE" "$BASE_HEAD" "$HEAD_COMMIT" "$CANDIDATE_TREE")"
+HEAD_COMMIT="$(git rev-parse HEAD)"; BASE_HEAD="$(pulmu_base_head "$BASE")"; CANDIDATE_TREE="$(pulmu_candidate_tree)"
+REVIEW_HEAD="$(pulmu_run_context review-origin --head "$HEAD_COMMIT" --expect-run-id "$EXPECT_RUN_ID")"
+CANDIDATE_ID="$(pulmu_candidate_identity "$EXPECT_RUN_ID" "$BRANCH" "$BASE" "$BASE_HEAD" "$HEAD_COMMIT" "$CANDIDATE_TREE" "$REVIEW_HEAD")"
 LOG="$(mktemp "$GIT_DIR/pulmu-quench.$$.XXXXXX")"
 ATTEMPT="${LOG##*.}-$EXPECT_RUN_ID"
 : > "$LOG"
@@ -115,20 +116,20 @@ done < "$PLAN"
 for index in "${!COMMANDS[@]}"; do
   run_check "${LABELS[$index]}" "${CWDS[$index]}" "${COMMANDS[$index]}"
   [[ "$(git branch --show-current)" == "$BRANCH" && "$(git rev-parse HEAD)" == "$HEAD_COMMIT" && \
-      "$(git rev-parse "$BASE")" == "$BASE_HEAD" && "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] ||
+      "$(pulmu_base_head "$BASE")" == "$BASE_HEAD" && "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] ||
     pulmu_die "candidate changed during ${LABELS[$index]}; verification commands must not modify task content"
 done
 
 [[ "$(git branch --show-current)" == "$BRANCH" ]] || pulmu_die "branch changed while Quench was running"
 [[ "$(git rev-parse HEAD)" == "$HEAD_COMMIT" ]] || pulmu_die "HEAD changed while Quench was running"
-[[ "$(git rev-parse "$BASE")" == "$BASE_HEAD" ]] || pulmu_die "base changed while Quench was running"
+[[ "$(pulmu_base_head "$BASE")" == "$BASE_HEAD" ]] || pulmu_die "base changed while Quench was running"
 [[ "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "candidate changed while Quench was running; verify again"
 
 printf 'PULMU_QUENCH_CHECKS=%s\n' "${#COMMANDS[@]}" | tee -a "$LOG"
 printf 'PULMU_QUENCH=PASS\n' >> "$LOG"
 pulmu_run_context quench-evidence pass \
   --branch "$BRANCH" --base "$BASE" --base-head "$BASE_HEAD" --head "$HEAD_COMMIT" \
-  --tree "$CANDIDATE_TREE" --fingerprint "$CANDIDATE_ID" --log "$LOG" \
+  --review-head "$REVIEW_HEAD" --tree "$CANDIDATE_TREE" --fingerprint "$CANDIDATE_ID" --log "$LOG" \
   --attempt "$ATTEMPT" \
   --expect-run-id "$EXPECT_RUN_ID" >/dev/null
 printf 'PULMU_QUENCH=PASS\n'

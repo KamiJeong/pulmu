@@ -20,7 +20,9 @@ If no repository change is useful, explain the evidence and finish as an advisor
 
 When one option is clearly best and the consequence is small, state the judgment briefly and continue. When alternatives materially change user-visible behavior, compatibility, cost, or scope, recommend one option, explain the practical tradeoffs, and wait for the user's choice. Honor choices already made in the conversation; do not ask again. If the user delegated the choice, choose and proceed.
 
-For a consequential UI request with no product-level visual and experience direction, read [design-selection.md](references/design-selection.md) during this assessment. Produce the recommended and alternative viewable preview as disposable, non-repository artifacts before asking the user to choose; do not modify task files or create the work branch for the preview. Once chosen, Pattern records the implementable direction inside Shape. If the user delegated the choice, select the recommendation and begin the forge.
+Check whether the intended outcome, relevant constraints, and observable completion conditions are clear enough to implement. First resolve gaps from the conversation and targeted repository evidence. If a material gap remains, follow [requirements-clarification.md](references/requirements-clarification.md): ask one to three focused questions with a recommendation where defensible, pause dependent implementation, and continue useful independent read-only investigation. Do not invent consequential requirements, treat silence as an answer, or make a complete request go through a questionnaire. Carry accepted answers and stated assumptions into Shape and every relevant handoff.
+
+For a consequential UI request with no product-level visual and experience direction, read [design-selection.md](references/design-selection.md) during this assessment. Honor an already selected direction; if the user delegated the choice, select the recommendation and proceed. Otherwise the Orchestrator produces recommended and alternative viewable previews as disposable, non-repository artifacts before asking the user to choose; do not modify task files or create the work branch for the preview. Pattern records the selected implementable direction inside Shape. The read-only Designer supplies specifications, not rendered artifacts.
 
 ## Core invariants
 
@@ -37,7 +39,7 @@ For an actual development run:
 9. Ship rejects pre-staged content and candidate drift. Never force-push, auto-merge, merge a PR, or discard unrelated changes.
 10. Finalize task and execution metadata once after Shape. Later scripts consume it instead of re-inferring it.
 
-Read [stage-contract.md](references/stage-contract.md) and [run-context.md](references/run-context.md) when beginning an actual development run. Read [delivery-policy.md](references/delivery-policy.md) before Ship.
+Read [stage-contract.md](references/stage-contract.md) when beginning an actual development run; it contains routine state transitions and helper commands. Read [run-context.md](references/run-context.md) only for resuming, recovering, or diagnosing saved state, or when a state operation is not covered by the stage contract. Read [delivery-policy.md](references/delivery-policy.md) before Ship. Do not preload all references.
 
 ## Adaptive execution
 
@@ -49,7 +51,7 @@ Forge depth and execution path are separate decisions. Select Quick, Standard, o
 | `reviewed` | Orchestrator | fresh independent review | implementation benefits from one continuous strong context but failure cost warrants separation |
 | `delegated` | Orchestrator or `pulmu_smith` | fresh independent review | independent investigation or a separate writer materially helps with a broad, unfamiliar, or risky change |
 
-The configured model and effort values in `.codex/agents` are defaults for roles that are actually spawned. Do not replace those role defaults merely because the main session uses another model. Read [agent-orchestration.md](references/agent-orchestration.md) only when delegating investigation, Pattern work, implementation, failure analysis, or independent review.
+The configured model and effort values in `.codex/agents` are defaults for roles that are actually spawned: Luna for bounded evidence collection, Sol for implementation and judgment. Do not replace those role defaults merely because the main session uses another model. Read [agent-orchestration.md](references/agent-orchestration.md) only when delegating investigation, Pattern work, implementation, failure analysis, or independent review. Give each agent a self-contained scoped brief, not the full conversation; preserve fresh independent reviewer input. Reuse established evidence instead of asking another scout to repeat the same search.
 
 After Shape, finalize both task and routing metadata:
 
@@ -93,4 +95,4 @@ This keeps the run ID, branch, work, and consumed retry counts, clears active ag
 
 For a successful development run, report Forge depth, execution path, designated writer, verification, review assurance (`self` or `independent`), commit, and optional PR URL. Say “reviewed commit” only when review metadata shows what kind of review occurred; do not present self-review as independent review.
 
-If a stage cannot safely continue, record a concise failure with `run-context.sh fail` and report the stage, reason, preserved branch, and one recovery action. A failed Quench or blocking Hone result never proceeds to Ship.
+Awaiting a required clarification is pending input, not a failed stage; preserve the current work and resume after the answer. If a stage otherwise cannot safely continue, record a concise failure with `run-context.sh fail` and report the stage, reason, preserved branch, and one recovery action. A failed Quench or blocking Hone result never proceeds to Ship.

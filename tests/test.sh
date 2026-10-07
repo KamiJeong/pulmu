@@ -5,10 +5,11 @@ PASS=0
 FAIL=0
 
 ok() { PASS=$((PASS+1)); printf '✓ %s\n' "$1"; }
+fixture_tempdir() { mktemp -d "$FIXTURE_ROOT/fixture.XXXXXX"; }
 bad() { FAIL=$((FAIL+1)); printf '✗ %s\n' "$1"; }
 run_test() {
   local name="$1"; shift
-  if "$@"; then ok "$name"; else bad "$name"; fi
+  if "${BASH:-/bin/bash}" "$ROOT/tests/test.sh" --fixture "$@"; then ok "$name"; else bad "$name"; fi
 }
 
 syntax_test() {
@@ -95,42 +96,48 @@ example_test() {
 
 quench_test() {
   local d status=0
-  d="$(mktemp -d)"
+  d="$(fixture_tempdir)"
   cp -R "$ROOT/examples/task-store/." "$d/"
-  (cd "$d" && git init -b main >/dev/null && git config user.name Test && git config user.email test@example.invalid && git add . && git commit -m init >/dev/null && bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type test --slug quench-pass 'Run Quench pass fixture' >/dev/null && finalize_metadata test quick low testing false false false && quench_for_run >/dev/null) || status=$?
+  (
+    cd "$d"
+    git init -b main >/dev/null
+    git config user.name Test
+    git config user.email test@example.invalid
+    git add .
+    git commit -m init >/dev/null
+    bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type test --slug quench-pass 'Run Quench pass fixture' >/dev/null
+    finalize_metadata test quick low testing false false false
+    quench_for_run >/dev/null
+  )
   rm -rf "$d"
   return "$status"
 }
 
 quench_failure_test() {
   local d status
-  d="$(mktemp -d)"
+  d="$(fixture_tempdir)"
   mkdir -p "$d"
   printf '{"scripts":{"test":"touch .git/quench-ran && exit 17"}}\n' > "$d/package.json"
-  if (
+  (
     cd "$d"
     git init -b main >/dev/null
     git config user.name Test; git config user.email test@example.invalid
     git add . && git commit -m init >/dev/null
     bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type test --slug quench-fail 'Run Quench failure fixture' >/dev/null
     finalize_metadata test quick low testing false false false
-    quench_for_run >"$d/.git/quench-output" 2>&1
-  ); then
-    status=0
-  else
-    status=$?
-  fi
-  [[ -f "$d/.git/quench-ran" ]] || status=0
-  grep -Fq '✗ npm run test (failed, exit 17)' "$d/.git/quench-output" || status=0
-  grep -Fq 'PULMU_QUENCH_CHECK_EXIT=npm run test:17' "$d"/.git/pulmu-quench.* 2>/dev/null || status=0
-  [[ ! -e "$d/.git/pulmu-metadata/quench_fingerprint" ]] || status=0
+    if quench_for_run >"$d/.git/quench-output" 2>&1; then status=0; else status=$?; fi
+    [[ "$status" -eq 17 ]]
+    [[ -f "$d/.git/quench-ran" ]]
+    grep -Fq '✗ npm run test (failed, exit 17)' "$d/.git/quench-output"
+    grep -Fq 'PULMU_QUENCH_CHECK_EXIT=npm run test:17' "$d"/.git/pulmu-quench.*
+    [[ ! -e "$d/.git/pulmu-metadata/quench_fingerprint" ]]
+  )
   rm -rf "$d"
-  [[ "$status" -eq 17 ]]
 }
 
 quench_discovery_test() {
   local tmp shell_repo python_repo combined_repo fakebin scripts status
-  tmp="$(mktemp -d)"
+  tmp="$(fixture_tempdir)"
   shell_repo="$tmp/shell-repo"
   python_repo="$tmp/python-repo"
   combined_repo="$tmp/combined-repo"
@@ -161,7 +168,7 @@ quench_discovery_test() {
     [[ -f "$tmp/shell-ran" && ! -e "$tmp/pytest-ran-for-shell" ]] || exit 1
     grep -Fq '• bash ./tests/test.sh' "$tmp/shell-output" || exit 1
     grep -Fq 'PULMU_QUENCH_CHECKS=1' "$tmp/shell-output" || exit 1
-  ) || status=$?
+  )
 
   if [[ "$status" -eq 0 ]]; then
     (
@@ -177,7 +184,7 @@ quench_discovery_test() {
       [[ -f "$tmp/pytest-ran-for-python" ]] || exit 1
       grep -Fq '• pytest -q' "$tmp/python-output" || exit 1
       grep -Fq 'PULMU_QUENCH_CHECKS=1' "$tmp/python-output" || exit 1
-    ) || status=$?
+    )
   fi
 
   if [[ "$status" -eq 0 ]]; then
@@ -196,7 +203,7 @@ quench_discovery_test() {
       grep -Fq '• bash ./tests/test.sh' "$tmp/combined-output" || exit 1
       grep -Fq '• pytest -q' "$tmp/combined-output" || exit 1
       grep -Fq 'PULMU_QUENCH_CHECKS=2' "$tmp/combined-output" || exit 1
-    ) || status=$?
+    )
   fi
 
   rm -rf "$tmp"
@@ -205,7 +212,7 @@ quench_discovery_test() {
 
 quench_plan_gate_test() {
   local tmp status
-  tmp="$(mktemp -d)"; status=0
+  tmp="$(fixture_tempdir)"; status=0
   (
     for scenario in pass missing timeout; do
       repo="$tmp/$scenario"; mkdir -p "$repo/nested"; cd "$repo"
@@ -232,13 +239,13 @@ quench_plan_gate_test() {
         [[ ! -e .git/pulmu-metadata/quench_fingerprint ]] || exit 1
       fi
     done
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 quench_stale_publication_test() {
   local tmp repo status run_id pid a_status=0 count
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; status=0
   mkdir -p "$repo"
   (
     cd "$repo"
@@ -262,13 +269,13 @@ quench_stale_publication_test() {
     [[ "$a_status" -ne 0 && "$(cat .git/pulmu-metadata/quench_fingerprint)" == "$successor_fingerprint" ]] || exit 1
     grep -Fxq 'RESULT_SUCCESSOR' .git/pulmu-quench.log || exit 1
     ! grep -Fxq 'RESULT_OLD' .git/pulmu-quench.log || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 installer_test() {
   local h status agent_count
-  h="$(mktemp -d)"
+  h="$(fixture_tempdir)"
   HOME="$h" bash "$ROOT/install.sh" >/dev/null
   agent_count="$(find "$h/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
   if [[ -f "$h/.agents/skills/pulmu/SKILL.md" && -f "$h/.agents/skills/pulmu/VERSION" && -f "$h/.agents/skills/pulmu/agents/openai.yaml" && -f "$h/.codex/agents/pulmu-smith.toml" && -x "$h/.agents/skills/pulmu/scripts/ship.sh" && -x "$h/.agents/skills/pulmu/scripts/run-context.sh" && -f "$h/.agents/skills/pulmu/scripts/run-context.py" && "$agent_count" -eq 12 ]] &&
@@ -283,7 +290,7 @@ installer_test() {
 
 uninstaller_test() {
   local h status
-  h="$(mktemp -d)"
+  h="$(fixture_tempdir)"
   HOME="$h" bash "$ROOT/install.sh" >/dev/null
   HOME="$h" bash "$ROOT/uninstall.sh" >/dev/null
   if [[ ! -e "$h/.agents/skills/pulmu" ]] &&
@@ -298,7 +305,7 @@ uninstaller_test() {
 
 local_installation_test() {
   local tmp target status before output agent_count
-  tmp="$(mktemp -d)"; target="$tmp/project with spaces"; status=0
+  tmp="$(fixture_tempdir)"; target="$tmp/project with spaces"; status=0
   (
     mkdir -p "$target/.codex/agents" "$target/.agents/skills/other"
     printf 'model = "keep-my-model"\n' > "$target/.codex/config.toml"
@@ -359,13 +366,13 @@ SH
     if bash "$ROOT/uninstall.sh" --local "$ROOT" >/dev/null 2>&1; then exit 1; fi
     if bash "$ROOT/install.sh" --local "$ROOT/.agents/skills/pulmu" >/dev/null 2>&1; then exit 1; fi
     [[ "$(git hash-object "$ROOT/.agents/skills/pulmu/SKILL.md")" == "$before" ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 demo_packaging_test() {
   local tmp target status agent_count
-  tmp="$(mktemp -d)"
+  tmp="$(fixture_tempdir)"
   target="$tmp/demo"
   bash "$ROOT/scripts/create-demo-repo.sh" "$target" >/dev/null
   agent_count="$(find "$target/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
@@ -387,18 +394,18 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 agent_dir = root / ".codex" / "agents"
 expected = {
-    "pulmu-explorer.toml": ("pulmu_explorer", "gpt-5.6-terra", "medium", "read-only"),
-    "pulmu-test-scout.toml": ("pulmu_test_scout", "gpt-5.6-luna", "medium", "read-only"),
-    "pulmu-risk-scout.toml": ("pulmu_risk_scout", "gpt-5.6-terra", "high", "read-only"),
-    "pulmu-architect.toml": ("pulmu_architect", "gpt-5.6-sol", "high", "read-only"),
-    "pulmu-designer.toml": ("pulmu_designer", "gpt-5.6-sol", "high", "read-only"),
-    "pulmu-smith.toml": ("pulmu_smith", "gpt-5.6-sol", "high", "workspace-write"),
-    "pulmu-failure-analyst.toml": ("pulmu_failure_analyst", "gpt-5.6-terra", "high", "read-only"),
-    "pulmu-reviewer.toml": ("pulmu_reviewer", "gpt-5.6-terra", "high", "read-only"),
-    "pulmu-test-reviewer.toml": ("pulmu_test_reviewer", "gpt-5.6-terra", "medium", "read-only"),
-    "pulmu-security-reviewer.toml": ("pulmu_security_reviewer", "gpt-5.6-sol", "high", "read-only"),
-    "pulmu-compat-reviewer.toml": ("pulmu_compat_reviewer", "gpt-5.6-terra", "high", "read-only"),
-    "pulmu-design-reviewer.toml": ("pulmu_design_reviewer", "gpt-5.6-sol", "medium", "read-only"),
+    "pulmu-explorer.toml": ("pulmu_explorer", "gpt-6-luna", "medium", "read-only"),
+    "pulmu-test-scout.toml": ("pulmu_test_scout", "gpt-6-luna", "medium", "read-only"),
+    "pulmu-risk-scout.toml": ("pulmu_risk_scout", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-architect.toml": ("pulmu_architect", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-designer.toml": ("pulmu_designer", "gpt-6.1-sol", "medium", "read-only"),
+    "pulmu-smith.toml": ("pulmu_smith", "gpt-6.1-sol", "medium", "workspace-write"),
+    "pulmu-failure-analyst.toml": ("pulmu_failure_analyst", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-reviewer.toml": ("pulmu_reviewer", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-test-reviewer.toml": ("pulmu_test_reviewer", "gpt-6.1-sol", "medium", "read-only"),
+    "pulmu-security-reviewer.toml": ("pulmu_security_reviewer", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-compat-reviewer.toml": ("pulmu_compat_reviewer", "gpt-6.1-sol", "high", "read-only"),
+    "pulmu-design-reviewer.toml": ("pulmu_design_reviewer", "gpt-6.1-sol", "medium", "read-only"),
 }
 
 actual_files = {path.name for path in agent_dir.glob("pulmu-*.toml")}
@@ -514,7 +521,7 @@ EOF
 
 base_selection_paths_test() {
   local tmp common status
-  tmp="$(mktemp -d)"; common="$ROOT/.agents/skills/pulmu/scripts/common.sh"; status=0
+  tmp="$(fixture_tempdir)"; common="$ROOT/.agents/skills/pulmu/scripts/common.sh"; status=0
   (
     mkdir -p "$tmp/convention"; cd "$tmp/convention"
     git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -522,7 +529,7 @@ base_selection_paths_test() {
     git switch -c release >/dev/null
     source "$common"
     [[ "$(pulmu_base_branch)" == release ]] || exit 1
-  ) || status=$?
+  )
   if [[ "$status" -eq 0 ]]; then
     (
       git init --bare "$tmp/remote.git" >/dev/null
@@ -536,7 +543,7 @@ base_selection_paths_test() {
       [[ "$(pulmu_base_branch)" == pulmu/existing ]] || exit 1
       git switch --detach >/dev/null
       [[ "$(pulmu_base_branch)" == trunk ]] || exit 1
-    ) || status=$?
+    )
   fi
   if [[ "$status" -eq 0 ]]; then
     (
@@ -544,7 +551,7 @@ base_selection_paths_test() {
       git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
       printf 'base\n' > file.txt; git add . && git commit -m init >/dev/null; git switch --detach >/dev/null
       source "$common"; [[ "$(pulmu_base_branch)" == main ]] || exit 1
-    ) || status=$?
+    )
   fi
   if [[ "$status" -eq 0 ]]; then
     (
@@ -552,7 +559,7 @@ base_selection_paths_test() {
       git init -b develop >/dev/null; git config user.name Test; git config user.email test@example.invalid
       printf 'base\n' > file.txt; git add . && git commit -m init >/dev/null; git switch --detach >/dev/null
       source "$common"; [[ "$(pulmu_base_branch)" == develop ]] || exit 1
-    ) || status=$?
+    )
   fi
   rm -rf "$tmp"; return "$status"
 }
@@ -656,7 +663,7 @@ record_reviewed_delivery() {
 
 metadata_policy_test() {
   local tmp repo status
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -690,13 +697,13 @@ metadata_policy_test() {
     finalize_metadata feature full medium testing true false true
     [[ "$(cat .git/pulmu-metadata/areas)" == frontend,design,testing ]] || exit 1
     if finalize_metadata feature standard medium testing true false true >/dev/null 2>&1; then exit 1; fi
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 branch_naming_policy_test() {
   local tmp repo scripts status run_id output saved_branch saved_id before invalid
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -752,13 +759,13 @@ branch_naming_policy_test() {
     git branch feature/PROJ-123-existing
     output="$(bash "$scripts/ignite.sh" --branch feature/PROJ-123-existing --slug existing 'Existing requested name')"
     grep -qx 'PULMU_BRANCH=feature/PROJ-123-existing-2' <<<"$output" || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 config_and_collision_test() {
   local tmp repo bare status
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; bare="$tmp/remote.git"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; bare="$tmp/remote.git"; status=0
   mkdir -p "$repo/.pulmu"; git init --bare "$bare" >/dev/null; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -773,7 +780,7 @@ config_and_collision_test() {
     out="$(bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" --type feature --slug search 'Add search')"
     grep -q 'PULMU_BASE=main' <<<"$out" || exit 1
     grep -q 'PULMU_BRANCH=feat/search-2' <<<"$out" || exit 1
-  ) || status=$?
+  )
   if [[ "$status" -eq 0 ]]; then
     rm -rf "$repo"; mkdir -p "$repo/.pulmu"; cp -R "$ROOT/examples/task-store/." "$repo/"
     (
@@ -785,14 +792,14 @@ config_and_collision_test() {
       if bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" 'Unsafe config' >/dev/null 2>&1; then exit 1; fi
       printf '[policy]\nauto_merge = true\n' > .pulmu/config.toml
       if bash "$ROOT/.agents/skills/pulmu/scripts/ignite.sh" 'Unsafe merge config' >/dev/null 2>&1; then exit 1; fi
-    ) || status=$?
+    )
   fi
   rm -rf "$tmp"; return "$status"
 }
 
 ship_evidence_gate_test() {
   local tmp repo before status old_hone hidden_blob
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -848,13 +855,13 @@ import json, pathlib, sys
 state = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert state["status"] == "running" and state["stage"]["current"] == "ship"
 PY
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 review_receipt_gate_test() {
   local tmp repo status run_id candidate role
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -900,13 +907,13 @@ review_receipt_gate_test() {
       --findings 'Non-blocking compatibility note.' --evidence 'Public fixture contract unchanged.' --limitations none >/dev/null
     metadata_for_run hone --result pass >/dev/null
     [[ "$(cat .git/pulmu-metadata/hone_fingerprint)" == "$candidate" ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 ship_terminal_recovery_test() {
   local tmp repo status run_id commit parent before_count recovered_id
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -956,13 +963,13 @@ PY
     recovered_id="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$next")"
     [[ "$recovered_id" != "$run_id" && ! -e .git/pulmu-ship-commit ]] || exit 1
     [[ "$(cat .git/pulmu-metadata/task)" == 'Start a distinct task after recovery' ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 local_delivery_test() {
   local tmp repo status
-  tmp="$(mktemp -d)"
+  tmp="$(fixture_tempdir)"
   repo="$tmp/repo"
   status=0
   mkdir -p "$repo"
@@ -993,14 +1000,14 @@ assert state["status"] == "completed" and state["stage"] == {"current": "ship", 
 assert state["pr"] is None and state["completedAt"] and state["git"]["commit"]
 PY
     [[ -z "$(git status --porcelain)" ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"
   return "$status"
 }
 
 github_delivery_test() {
   local tmp bare repo fakebin ancestry_bare ancestry_repo risky_bare risky_repo pattern_bare pattern_repo status real_git
-  tmp="$(mktemp -d)"
+  tmp="$(fixture_tempdir)"
   bare="$tmp/remote.git"
   repo="$tmp/repo"
   fakebin="$tmp/bin"
@@ -1156,7 +1163,7 @@ PY
     export GH_PR_MODE=invalid
     if PATH="$fakebin:$PATH" ship_for_run --delivery github >/dev/null 2>&1; then exit 1; fi
     [[ "$(git rev-list --count main..HEAD)" -eq 1 && "$(grep -c '^pr create ' "$GH_LOG")" -eq 1 ]] || exit 1
-  ) || status=$?
+  )
   if [[ "$status" -eq 0 ]]; then
     ancestry_bare="$tmp/ancestry-remote.git"; ancestry_repo="$tmp/ancestry-repo"
     mkdir -p "$ancestry_repo"; git init --bare "$ancestry_bare" >/dev/null; cp -R "$ROOT/examples/task-store/." "$ancestry_repo/"
@@ -1176,7 +1183,7 @@ PY
       if PATH="$fakebin:$PATH" ship_for_run --delivery github >/dev/null 2>&1; then exit 1; fi
       if git --git-dir="$ancestry_bare" show-ref --verify --quiet refs/heads/feat/ancestry-guard; then exit 1; fi
       [[ ! -s "$GH_LOG" || "$(grep -c '^pr ' "$GH_LOG" || true)" -eq 0 ]] || exit 1
-    ) || status=$?
+    )
   fi
   if [[ "$status" -eq 0 ]]; then
     risky_bare="$tmp/risky-remote.git"; risky_repo="$tmp/risky-repo"
@@ -1209,7 +1216,7 @@ PY
       grep -q '^pr create .*--draft' "$GH_LOG" || exit 1
       grep -q '^label create risk: high --repo github.com/example/pulmu-demo ' "$GH_LOG" || exit 1
       [[ "$(grep -c '^pr create ' "$GH_LOG")" -eq 1 && "$(git rev-list --count main..HEAD)" -eq 1 ]] || exit 1
-    ) || status=$?
+    )
   fi
   if [[ "$status" -eq 0 ]]; then
     pattern_bare="$tmp/pattern-remote.git"; pattern_repo="$tmp/pattern-repo"
@@ -1243,7 +1250,7 @@ PY
       grep -Fq -- '- Areas: frontend, design, testing' "$GH_BODY_CAPTURE" || exit 1
       grep -Fq -- '--add-label area: frontend' "$GH_LOG" || exit 1
       grep -Fq -- '--add-label area: design' "$GH_LOG" || exit 1
-    ) || status=$?
+    )
   fi
   rm -rf "$tmp"
   return "$status"
@@ -1251,7 +1258,7 @@ PY
 
 run_context_test() {
   local tmp repo scripts status run_id second_id third_id stale_output
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"
@@ -1336,13 +1343,19 @@ PY
     root_tree="$(bash -c 'source "$1/common.sh"; pulmu_candidate_tree' _ "$scripts")"
     subdir_tree="$(cd src && bash -c 'source "$1/common.sh"; pulmu_candidate_tree' _ "$scripts")"
     [[ "$subdir_tree" == "$root_tree" ]] || exit 1
+    root_fingerprint="$(bash -c 'source "$1/common.sh"; pulmu_changed_fingerprint' _ "$scripts")"
     printf 'subdirectory candidate publication\n' > "$tmp/subdir-quench.log"
     bash "$scripts/run-context.sh" quench-evidence begin --attempt subdir-scope --expect-run-id "$run_id" >/dev/null
     (
       cd src
-      bash "$scripts/run-context.sh" quench-evidence pass \
+      if bash "$scripts/run-context.sh" quench-evidence pass \
         --branch feat/persistent-state --base main --base-head "$(git rev-parse main)" \
         --head "$(git rev-parse HEAD)" --tree "$root_tree" --fingerprint aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+        --log "$tmp/subdir-quench.log" --attempt subdir-scope --expect-run-id "$run_id" >/dev/null 2>&1; then exit 1; fi
+      [[ ! -e ../.git/pulmu-metadata/quench_fingerprint ]]
+      bash "$scripts/run-context.sh" quench-evidence pass \
+        --branch feat/persistent-state --base main --base-head "$(git rev-parse main)" \
+        --head "$(git rev-parse HEAD)" --tree "$root_tree" --fingerprint "$root_fingerprint" \
         --log "$tmp/subdir-quench.log" --attempt subdir-scope --expect-run-id "$run_id" >/dev/null
     )
     for expected_retry in 1 2 3; do
@@ -1442,13 +1455,13 @@ PY
     mv .git/pulmu/safe-run.json .git/pulmu/run.json
     bash "$scripts/pulmu-status.sh" | grep -Fq 'Status   failed' || exit 1
     [[ -z "$(git status --porcelain)" ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 legacy_run_context_migration_test() {
   local tmp repo scripts status
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1470,13 +1483,13 @@ assert state["task"] == {"prompt": "Migrate legacy Pulmu state", "type": "featur
 assert state["git"]["baseBranch"] == "main" and state["git"]["branch"] == "pulmu/feat/legacy-state"
 assert state["forge"] == "standard" and state["areas"] == ["infra"]
 PY
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 legacy_terminal_context_test() {
   local tmp repo scripts status old_id before after
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1504,13 +1517,13 @@ assert state["git"]["baseBranch"] == "main" and state["git"]["branch"] == "feat/
 assert state["forge"] == "standard" and state["risk"] == "low" and state["areas"] == ["infra"]
 assert state["git"]["commit"] and state["pr"] is None and state["error"] is None
 PY
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 stale_run_guard_test() {
   local tmp repo scripts status run_a run_b before after head_before
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1544,13 +1557,13 @@ state = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert state["runId"] == sys.argv[2] and state["status"] == "running"
 assert state["stage"] == {"current": "ignite", "status": "in_progress"}
 PY
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 python_preflight_test() {
   local tmp repo fakebin scripts status
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; fakebin="$tmp/bin"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; fakebin="$tmp/bin"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo" "$fakebin"; cp -R "$ROOT/examples/task-store/." "$repo/"
   printf '#!/usr/bin/env bash\nexit 127\n' > "$fakebin/python3"; chmod +x "$fakebin/python3"
   (
@@ -1559,13 +1572,13 @@ python_preflight_test() {
     if PATH="$fakebin:$PATH" bash "$scripts/ignite.sh" 'Python preflight' > "$tmp/out" 2>&1; then exit 1; fi
     grep -Fq 'Python 3.10+ is required for Pulmu Run Context' "$tmp/out" || exit 1
     [[ "$(git branch --show-current)" == main && ! -e .git/pulmu/run.json ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 adaptive_execution_policy_test() {
   local tmp scripts status
-  tmp="$(mktemp -d)"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   (
     repo="$tmp/direct"; mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"; cd "$repo"
     git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1623,13 +1636,13 @@ PY
       python3 -c 'import json; state=json.load(open(".git/pulmu/run.json")); assert state["execution"] is None and state["stage"]["current"] == "shape"'
       [[ "$(cat .git/pulmu-metadata/status)" == provisional ]] || exit 1
     done
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 replan_policy_test() {
   local tmp repo scripts status run_id
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1660,13 +1673,13 @@ PY
     if bash "$scripts/run-context.sh" set-stage hammer --expect-run-id "$run_id" >/dev/null 2>&1; then exit 1; fi
     finalize_metadata feature full high backend false false true delegated pulmu_smith independent true
     [[ "$(cat .git/pulmu-metadata/compatibility_review)" == true ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 schema_v1_execution_migration_test() {
   local tmp repo scripts status run_id
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1702,13 +1715,13 @@ path = pathlib.Path('.git/pulmu/run.json'); state = json.loads(path.read_text())
 state['schemaVersion'] = 1; state['unexpected'] = True; state.pop('execution'); path.write_text(json.dumps(state))
 PY
     if bash "$scripts/run-context.sh" show >/dev/null 2>&1; then exit 1; fi
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
 run_context_worktree_test() {
   local tmp repo linked scripts status
-  tmp="$(mktemp -d)"; repo="$tmp/repo"; linked="$tmp/linked"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
+  tmp="$(fixture_tempdir)"; repo="$tmp/repo"; linked="$tmp/linked"; scripts="$ROOT/.agents/skills/pulmu/scripts"; status=0
   mkdir -p "$repo"; cp -R "$ROOT/examples/task-store/." "$repo/"
   (
     cd "$repo"; git init -b main >/dev/null; git config user.name Test; git config user.email test@example.invalid
@@ -1719,10 +1732,64 @@ run_context_worktree_test() {
     resolved="$(git rev-parse --path-format=absolute --git-dir)"
     [[ -f "$resolved/pulmu/run.json" && ! -e "$repo/.git/pulmu/run.json" ]] || exit 1
     [[ -z "$(git status --porcelain)" ]] || exit 1
-  ) || status=$?
+  )
   rm -rf "$tmp"; return "$status"
 }
 
+# Each fixture runs outside a conditional shell context so errexit applies to
+# every ordinary command, including assertions inside nested subshells.
+harness_assertion_failure() {
+  printf '%s\n' "$TMPDIR" > "$HARNESS_ROOT_MARKER"
+  fixture_tempdir > "$HARNESS_CHILD_MARKER"
+  python3 -c 'assert False, "intentional harness regression"'
+  touch "$HARNESS_CONTINUED"
+}
+harness_subshell_failure() {
+  (false; touch "$HARNESS_CONTINUED")
+}
+harness_expected_failure() {
+  if bash -c 'exit 17'; then return 1; else [[ "$?" -eq 17 ]]; fi
+  touch "$HARNESS_CONTINUED"
+}
+harness_test() {
+  local tmp failed_root before_pass before_fail
+  tmp="$(fixture_tempdir)"
+  export HARNESS_ROOT_MARKER="$tmp/root" HARNESS_CHILD_MARKER="$tmp/child" HARNESS_CONTINUED="$tmp/continued"
+  if "$BASH" "$ROOT/tests/test.sh" --fixture harness_assertion_failure >"$tmp/log" 2>&1; then return 1; fi
+  grep -Fq 'AssertionError' "$tmp/log"
+  failed_root="$(cat "$HARNESS_ROOT_MARKER")"
+  [[ ! -e "$failed_root" && ! -e "$(cat "$HARNESS_CHILD_MARKER")" && ! -e "$HARNESS_CONTINUED" ]]
+  if "$BASH" "$ROOT/tests/test.sh" --fixture harness_subshell_failure; then return 1; fi
+  [[ ! -e "$HARNESS_CONTINUED" ]]
+  "$BASH" "$ROOT/tests/test.sh" --fixture harness_expected_failure
+  [[ -f "$HARNESS_CONTINUED" ]]
+  rm "$HARNESS_CONTINUED"
+  before_pass="$PASS"; before_fail="$FAIL"
+  run_test 'intentional runner failure' harness_assertion_failure > "$tmp/runner.log" 2>&1
+  [[ "$FAIL" -eq $((before_fail + 1)) && "$PASS" -eq "$before_pass" && ! -e "$HARNESS_CONTINUED" ]] || return 1
+  run_test 'runner continues after failure' harness_expected_failure >> "$tmp/runner.log" 2>&1
+  [[ "$PASS" -eq $((before_pass + 1)) && -f "$HARNESS_CONTINUED" ]] || return 1
+}
+
+source "$ROOT/tests/runtime-regressions.sh"
+
+if [[ "${1:-}" == --fixture ]]; then
+  shift
+  FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pulmu-test.XXXXXX")"
+  cleanup_fixture() {
+    local status=$?
+    trap - EXIT
+    cd "$ROOT"
+    rm -rf "$FIXTURE_ROOT"
+    exit "$status"
+  }
+  trap cleanup_fixture EXIT
+  export TMPDIR="$FIXTURE_ROOT"
+  "$@"
+  exit 0
+fi
+
+run_test 'harness detects intermediate failures and cleans fixture state' harness_test
 run_test 'shell scripts parse' syntax_test
 run_test 'GitHub CI covers Linux and macOS Bash' github_repository_contract_test
 run_test 'landing page preserves adoption and repository contracts' landing_page_contract_test
@@ -1733,16 +1800,20 @@ run_test 'Quench distinguishes shell and Python test discovery' quench_discovery
 run_test 'Quench requires and consumes a bounded verification plan' quench_plan_gate_test
 run_test 'stale Quench cannot publish over a successor attempt' quench_stale_publication_test
 run_test 'installer lays out skill and agents' installer_test
+run_test 'installer restores backups on interruption and preserves failed rollback backups' installer_rollback_test
 run_test 'uninstaller removes skill and all Pulmu agents' uninstaller_test
 run_test 'project-local install and removal preserve unrelated configuration' local_installation_test
 run_test 'demo repository packages all Pulmu agents' demo_packaging_test
 run_test 'agent TOMLs preserve routing and single-writer contracts' agent_contract_test
+run_test 'efficiency reports preserve paired quality and usage evidence' python3 -B "$ROOT/tests/test_benchmark_report.py"
 run_test 'skill preserves seven stages with conditional Pattern' skill_contract_test
 run_test 'all task types map to branch, commit, and label dimensions' task_mapping_test
 run_test 'base selection covers convention, remote default, main, and develop' base_selection_paths_test
+run_test 'remote-only bases pass verification and retain logical delivery names' remote_base_test
 run_test 'metadata finalization propagates Pattern and remains immutable' metadata_policy_test
 run_test 'config rejects unsafe policy and branch collisions are deterministic' config_and_collision_test
 run_test 'Ship rejects missing, stale, and mutated verification evidence' ship_evidence_gate_test
+run_test 'Ship hook recovery rechecks the complete diff without rewriting history' ship_hook_reverification_test
 run_test 'Hone requires exact bounded reviewer receipts' review_receipt_gate_test
 run_test 'Ship recovers only the exact same-run reviewed commit' ship_terminal_recovery_test
 run_test 'local Git repository completes without GitHub' local_delivery_test

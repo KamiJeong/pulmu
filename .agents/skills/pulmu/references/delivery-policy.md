@@ -63,6 +63,8 @@ For a branch not identified by saved provenance, base-branch precedence is:
 
 Pulmu never creates a base branch or introduces a new Git Flow. Default work branches use `<type>/<short-kebab-slug>`, with `feature -> feat` and `bugfix -> fix`; other type names are unchanged. `git.branch_prefix = ""` is the default; setting it to `"pulmu"` opts into `pulmu/<type>/<slug>` (other simple namespaces are supported).
 
+For each logical base name, Git operations resolve `refs/heads/<name>` first and `refs/remotes/origin/<name>` second. This permits a remote-only base without creating a local tracking branch. Metadata and PRs retain the logical name, such as `main`; verification binds the resolved commit. Pulmu does not fetch or update the base implicitly.
+
 The Orchestrator honors an explicit user name, then explicit repository naming instructions, before generating the default. It passes a complete nondefault name to Ignite with `--branch "<name>"`, overriding the configured namespace. Issue IDs are included when supplied or explicitly required; a few old branch names do not establish a rule. Names must be literal valid Git branch names. Local or remote collisions receive the first available deterministic numeric suffix, including for explicit names; the reported branch is authoritative.
 
 A running run blocks a new Ignite. After a terminal run, a matching saved branch uses verified base provenance to create a distinct task branch; it never reuses the prior task or evidence. A name beginning with `pulmu/` alone establishes no ownership, and legacy prefixed branches with valid saved records continue to work. If all provenance is absent, Pulmu treats the branch as ordinary; it does not reconstruct lost ownership from a name.
@@ -88,6 +90,19 @@ By default Pulmu lists repository labels, applies only exact existing matches, a
 ## Interrupted delivery recovery
 
 Ship records the run ID, branch, base, candidate tree, and created commit before attempting GitHub push and pull-request operations. When a later GitHub operation fails, the retained metadata permits an exact, clean same-run retry without creating a second commit, including after the run was marked failed or interrupted. Recovery preserves the original terminal history snapshot and records recovered completion separately. The user should repair the external condition—authentication, remote access, permissions, or GitHub availability—and retry Ship. Starting a fresh Ignite is not delivery recovery. Recovery metadata under the Git directory is part of the resume contract and must not be deleted manually.
+
+## Commit-hook reverification
+
+If a commit fails or hooks change the committed/working-tree content, Ship stops before push. Preserve the commit, files, and index. The Orchestrator calls:
+
+```bash
+bash <skill>/scripts/run-context.sh reverify-ship \
+  --commit "$(git rev-parse HEAD)" --expect-run-id "$RUN_ID"
+```
+
+The operation accepts only the same unfinished Ship (running, failed, or interrupted) on the recorded branch, with the original evidence intact. HEAD must be the reviewed pre-commit HEAD or exactly its single-parent child. Additional commits, merges, stale run IDs, or conflicting provenance are rejected. Terminal outcomes are archived. A write-ahead recovery record makes interrupted initialization retryable with the same run and HEAD; other state changes wait until it finishes. No reset, amend, unstage, or history rewrite occurs; existing staged content requires an explicit unstage before another Ship attempt.
+
+Recovery returns to Quench, clears verification/review/delivery evidence and receipts, and retains the original review origin. Inspect hook changes; if they change scope or risk, replan from Quench first. Run fresh Quench, review the entire `candidate_review_head → candidate_tree` diff under the finalized review policy, and regenerate delivery metadata. A clean reverified hook commit is reused exactly; working-tree changes produce a normal child commit. Any further hook mutation stops delivery again. This path does not resume arbitrary failed development stages.
 
 ## Configuration
 

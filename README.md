@@ -96,6 +96,8 @@ $pulmu "Check whether a second cache layer is needed. Explain the existing behav
 
 Pulmu first reads enough evidence to judge necessity. A clear, small change proceeds after a brief explanation. A meaningful difference in behavior, compatibility, cost, or scope gets a recommended option and practical alternatives before implementation. Existing functionality may make a new implementation unnecessary.
 
+If important requirements are missing, Pulmu checks the conversation and relevant code first, then asks one to three focused questions only for gaps that change the result. Questions explain the consequence and include a recommendation when supported. For example, a new login feature may need an account/signup policy; a redirect fix in an established login flow should reuse that policy. Minor reversible details use stated defaults. While a required answer is pending, Pulmu can continue independent read-only investigation, but dependent implementation waits. Silence is not agreement. Accepted answers carry into the implementation brief and review criteria. See [requirements clarification](./.agents/skills/pulmu/references/requirements-clarification.md).
+
 Respond in plain language, for example “Use the recommended option,” “Keep the existing API,” or “Choose the design for me.” A consequential unresolved choice waits for your answer; an already accepted or delegated decision does not require another approval. You can add constraints during work. If they invalidate the implementation plan, Pulmu returns to Shape and repeats the affected verification and review.
 
 ## When you have no UI plan
@@ -111,8 +113,8 @@ $pulmu "Build the same dashboard. Choose a suitable design for me and proceed; r
 For a consequential design choice, Pulmu:
 
 1. Identifies the users, main tasks, content density, platform, and existing conventions.
-2. Proposes two viewable directions using the same representative screen, content, and core action, with a recommendation and implementation tradeoffs.
-3. Uses disposable previews outside the repository before starting the work branch. A static mock is labelled as such; unavailable preview tools are disclosed.
+2. If the direction is consequential and still unresolved, proposes two viewable directions using the same representative screen, content, and core action, with a recommendation and implementation tradeoffs.
+3. The Orchestrator renders disposable previews outside the repository before starting the work branch. A static mock is labelled as such; unavailable preview tools are disclosed.
 4. Waits for your choice unless you delegated it, then records the chosen hierarchy, visual rules, states, responsive behavior, and accessibility needs in Pattern inside Shape.
 5. Implements and checks the rendered result using the available browser/accessibility tools. A mock does not prove working interactions or accessibility.
 
@@ -132,6 +134,18 @@ Pulmu chooses two separate things from repository evidence:
 Quick fits a bounded low-risk change; Standard fits a normal feature or nontrivial fix; Full fits migrations, security-sensitive changes, breaking contracts, or a broad impact. These labels do not set a fixed agent count. The [execution table below](#the-seven-forge-stages) explains the paths. Medium/high risk and Full Forge require independent review; explicit security/compatibility risks require the corresponding specialists. A missing required reviewer cannot be replaced by self-review.
 
 The main session uses your selected model. Spawned roles use their configured models; choosing a model in the main session does not change every specialist. See [agent routing and model defaults](./.agents/skills/pulmu/references/agent-orchestration.md). Model availability and execution cost depend on your environment; the adaptive structure is not a measured token-saving guarantee.
+
+The bundled defaults use the following split:
+
+| Work | Model / effort |
+| --- | --- |
+| Repository Explorer, Test Scout | `gpt-6-luna` / medium |
+| Smith, Designer, Test Reviewer, Design Reviewer | `gpt-6.1-sol` / medium |
+| Architect, Risk Scout, Failure Analyst, Correctness/Security/Compatibility Reviewers | `gpt-6.1-sol` / high |
+
+These IDs were checked against the [official model catalog](https://developers.openai.com/api/docs/models) and the local Codex model list on 2026-10-07; the Luna ID is `gpt-6-luna`, not `gpt-6.1-luna`. [Custom agent settings](https://learn.chatgpt.com/docs/agent-configuration/subagents) pin both model and effort, taking precedence over the main session and spawn defaults. Reinstall the managed copies and start a new Codex session to load updated role definitions; source edits do not change an already loaded role.
+
+Delegation uses fresh, scoped briefs, targeted searches, and concise evidence. Agents cannot fan out into more agents. The main session reuses scout findings, while each required reviewer gets a fresh candidate context. Detailed state documentation loads only for recovery or an uncovered operation. For repeatable measurements, the optional [efficiency evaluation guide](./.agents/skills/pulmu/references/efficiency-evaluation.md) and offline `benchmark-report.py` compare paired token, time, quality, and rework data. Missing child usage, failed quality checks, or excessive paired slowdowns cannot qualify as an improvement; reports include median, total, and maximum elapsed time. This does not measure live runs automatically or assert an unmeasured savings percentage.
 
 | Outcome | What you receive |
 | --- | --- |
@@ -393,6 +407,7 @@ Inspect the reported stage and current state first. Tell the same Codex session 
 | Quench or Hone finds a code issue | Let the designated writer correct it within the bounded retries. Exhausted retries stop delivery and preserve the branch. |
 | New scope or risk during an active run | Explain the change. The Orchestrator uses explicit `replan` before Ship, preserving the work and run ID while invalidating the old plan and evidence. |
 | Required independent reviewer unavailable | Restore the required role/model access. Self-review cannot substitute for the missing assurance. |
+| A commit hook changes the candidate | Preserve files and history; the Orchestrator uses guarded `reverify-ship`, then repeats verification and full-diff review before delivery. |
 | GitHub fails after the commit | Follow [Ship recovery](#recovering-an-interrupted-github-delivery); reuse the recorded commit instead of starting a new run. |
 
 Example follow-up inside Codex:
@@ -401,7 +416,7 @@ Example follow-up inside Codex:
 The change must also support the existing public API. Reassess the current plan, preserve the work, and repeat the required checks and review.
 ```
 
-`replan` operates on an active run before Ship; it is not a universal resume command for failed or interrupted runs. Automatic recovery of arbitrary stopped development sessions is not guaranteed. For those cases, use the reported preserved branch and recovery action; GitHub Ship recovery is the specifically supported same-commit recovery path.
+`replan` operates on an active run before Ship; it is not a universal resume command for failed or interrupted runs. Automatic recovery of arbitrary stopped development sessions is not guaranteed. For those cases, use the reported preserved branch and recovery action; GitHub Ship recovery reuses the reviewed commit; [commit-hook reverification](./.agents/skills/pulmu/references/delivery-policy.md#commit-hook-reverification) is a separate guarded path requiring fresh verification and full-diff review.
 
 ## Installation and demo
 

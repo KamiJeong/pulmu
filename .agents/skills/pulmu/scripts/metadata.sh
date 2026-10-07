@@ -270,7 +270,12 @@ case "$COMMAND" in
     if [[ "${#FOCUS[@]}" -gt 0 ]]; then
       for item in "${FOCUS[@]}"; do [[ -n "$item" && "$item" != *$'\n'* ]] || pulmu_die "each review focus must be one non-empty line"; printf '%s\n' "$item" >> "$dir/review-focus"; done
     fi
-    pulmu_changed_paths > "$dir/paths.z"; [[ -s "$dir/paths.z" ]] || pulmu_die "there are no changed paths to deliver"
+    pulmu_changed_paths > "$dir/paths.z"
+    if [[ ! -s "$dir/paths.z" ]]; then
+      review_head="$(pulmu_metadata_read candidate_review_head 2>/dev/null || true)"
+      [[ -n "$review_head" && "$review_head" != "$(pulmu_metadata_read candidate_head)" ]] || pulmu_die "there are no changed paths to deliver"
+      git diff --quiet "$review_head" "$(pulmu_metadata_read candidate_tree)" && pulmu_die "there are no reviewed changes to deliver"
+    fi
     pulmu_metadata_write delivery_fingerprint "$(pulmu_changed_fingerprint)"
     printf 'PULMU_DELIVERY_METADATA=ready\nPULMU_TITLE=%s\n' "$TITLE"
     ;;
