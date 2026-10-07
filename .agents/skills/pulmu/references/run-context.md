@@ -106,7 +106,9 @@ When new evidence changes finalized scope or risk, `replan --reason <concise rea
 
 Run Context completion does not weaken Ship. Local delivery completes only after the reviewed local commit exists. GitHub delivery completes only after Ship obtains a validated pull-request URL and matching PR number. A terminal run records Ship as completed, clears active agents, records the commit and optional PR, sets `completedAt`, and writes a history snapshot.
 
-When automation cannot continue, the Orchestrator calls `fail` with a short stable code and concise message; its terminal update is recorded in `updatedAt`. An external cancellation uses `interrupt` and records `interruptedAt`; successful delivery records `completedAt`. The terminal fields cannot contradict the lifecycle status. Neither operation stores command logs or model output. Prompt and error fields are length-bounded and redact common credential shapes; callers must never pass tokens, environment dumps, raw command output, or model responses.
+Apply [pending input and stopped work](stage-contract.md#pending-input-and-stopped-work) before choosing a terminal operation. Required clarification keeps the current stage pending; it does not call `fail` or `interrupt`. An unrecoverable prerequisite or exhausted correction budget uses `fail`, whose terminal update is recorded in `updatedAt`. An external cancellation uses `interrupt` and records `interruptedAt`; successful delivery records `completedAt`. The terminal fields cannot contradict the lifecycle status. Neither operation stores command logs or model output. Prompt and error fields are length-bounded and redact common credential shapes; callers must never pass tokens, environment dumps, raw command output, or model responses.
+
+Ship hook changes can reopen the same running, failed, or interrupted Ship with `reverify-ship --commit <current HEAD>`. This admits only the verified pre-commit HEAD or its single-parent child, preserves files/index/history and retry counts, and invalidates all downstream evidence. The recovery receipt retains the original review origin through subsequent Quench attempts or replan. Fresh Quench fingerprints bind `candidate_review_head` as well as current HEAD/tree; reviewers inspect that full diff. See [commit-hook reverification](delivery-policy.md#commit-hook-reverification). This does not resume arbitrary terminal stages.
 
 ## Previous runs
 
@@ -130,6 +132,8 @@ review-attempt --role <role> --candidate <fingerprint>
 review-result <structured result>
 review-check
 recover-ship --commit <sha>
+reverify-ship --commit <current HEAD sha>
+review-origin --head <current HEAD sha>
 validate-ship --commit <sha>
 complete --delivery <local|github> --commit <sha> [PR fields]
 fail --code <CODE> --message <concise message>

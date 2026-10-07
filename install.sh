@@ -21,8 +21,9 @@ WORK_DIR="$(mktemp -d "$INSTALL_TARGET/.pulmu-install.XXXXXX")"
 COMPLETE=false; SKILL_ATTEMPTED=false
 REPLACED_AGENTS=()
 cleanup_install() {
-  local status=$? name rollback_failed=false
+  local status=$? name backup rollback_failed=false
   trap - EXIT
+  trap '' INT TERM
   if [[ "$COMPLETE" == false ]]; then
     if [[ "$SKILL_ATTEMPTED" == true ]]; then rm -rf "$SKILL_DST" || rollback_failed=true; fi
     if [[ -e "$WORK_DIR/previous-skill" || -L "$WORK_DIR/previous-skill" ]]; then
@@ -31,11 +32,15 @@ cleanup_install() {
     if [[ ${#REPLACED_AGENTS[@]} -gt 0 ]]; then
       for name in "${REPLACED_AGENTS[@]}"; do
         rm -f "$AGENT_DST/$name" || rollback_failed=true
-        if [[ -e "$WORK_DIR/previous-agents/$name" || -L "$WORK_DIR/previous-agents/$name" ]]; then
-          mv "$WORK_DIR/previous-agents/$name" "$AGENT_DST/$name" || rollback_failed=true
-        fi
       done
     fi
+    # A signal can arrive after a backup move but before array registration.
+    # Restore every backup, independently of the list of attempted replacements.
+    for backup in "$WORK_DIR/previous-agents/"*; do
+      [[ -e "$backup" || -L "$backup" ]] || continue
+      name="${backup##*/}"
+      mv "$backup" "$AGENT_DST/$name" || rollback_failed=true
+    done
   fi
   if [[ "$rollback_failed" == true ]]; then
     printf '✗ could not fully restore installation; backups retained at %s\n' "$WORK_DIR" >&2

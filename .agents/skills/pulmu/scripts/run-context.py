@@ -394,7 +394,9 @@ def require_running(state: dict[str, Any], expected_run_id: str | None) -> None:
     expect(state["status"] == "running", f"Run Context is terminal ({state['status']})")
 
 
-def read_required(store: Store) -> dict[str, Any]:
+def read_required(store: Store, *, allow_pending_reverify: bool = False) -> dict[str, Any]:
+    expect(allow_pending_reverify or not (store.root / "ship-reverify-pending.json").exists(),
+           "Ship reverification initialization was interrupted; retry reverify-ship first")
     state = store.read()
     expect(state is not None, "Run Context does not exist; run Ignite first")
     return state
@@ -461,6 +463,46 @@ def metadata_value(metadata: Path, name: str) -> str:
     return path.read_text(encoding="utf-8").rstrip("\n")
 
 
+def git_text(*args: str) -> str:
+    result = subprocess.run(["git", *args], capture_output=True, text=True)
+    expect(result.returncode == 0, f"Git could not resolve {' '.join(args)}")
+    return result.stdout.strip()
+
+
+def base_commit(base: str) -> str:
+    for ref in (f"refs/heads/{base}", f"refs/remotes/origin/{base}"):
+        if subprocess.run(["git", "show-ref", "--verify", "--quiet", ref]).returncode == 0:
+            return git_text("rev-parse", "--verify", f"{ref}^{{commit}}")
+    raise ContextError(f"base branch does not exist: {base}")
+
+
+def recovery_review_head(store: Store, state: dict[str, Any], head: str) -> str:
+    receipt = store.root / "ship-reverify.json"
+    if not receipt.exists():
+        return head
+    expect(receipt.is_file() and not receipt.is_symlink(), "invalid Ship reverify receipt")
+    try:
+        data = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ContextError("invalid Ship reverify receipt") from exc
+    expect(isinstance(data, dict) and set(data) == {"runId", "branch", "base", "head", "reviewHead"},
+           "invalid Ship reverify receipt")
+    expect(data["runId"] == state["runId"] and data["branch"] == state["git"]["branch"]
+           and data["base"] == state["git"]["baseBranch"] and data["head"] == head,
+           "Ship reverify receipt does not match this run and candidate HEAD")
+    origin = data["reviewHead"]
+    expect(isinstance(origin, str) and re.fullmatch(r"[0-9a-f]{40,64}", origin) is not None,
+           "invalid Ship review origin")
+    expect(subprocess.run(["git", "merge-base", "--is-ancestor", origin, head]).returncode == 0,
+           "Ship review origin is not an ancestor of the candidate")
+    return origin
+
+
+def review_identity_suffix(head: str, review_head: str) -> str:
+    # Preserve fingerprints from older runs that have no recovery origin.
+    return f"review_head={review_head}\n" if review_head != head else ""
+
+
 def current_candidate_fingerprint(store: Store, state: dict[str, Any]) -> str:
     metadata = store.root.parent / "pulmu-metadata"
     expect(metadata_value(metadata, "run_id") == state["runId"], "metadata runId conflicts with Run Context")
@@ -468,13 +510,13 @@ def current_candidate_fingerprint(store: Store, state: dict[str, Any]) -> str:
     head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     base = state["git"]["baseBranch"]
     expect(isinstance(base, str) and bool(base), "Run Context base branch is missing")
-    base_head = subprocess.run(["git", "rev-parse", base], check=True, capture_output=True, text=True).stdout.strip()
+    base_head = base_commit(base)
     tree = git_candidate_tree(store)
     expect(branch == state["git"]["branch"], "Git branch conflicts with Run Context")
     payload = (
         f"run={state['runId']}\nbranch={branch}\nbase={base}\n"
         f"base_head={base_head}\nhead={head}\ntree={tree}\n"
-    )
+    ) + review_identity_suffix(head, recovery_review_head(store, state, head))
     return subprocess.run(["git", "hash-object", "--stdin"], input=payload, check=True,
                           capture_output=True, text=True).stdout.strip()
 
@@ -515,13 +557,15 @@ def require_exact_evidence(store: Store, state: dict[str, Any], *names: str) -> 
 
 
 def stored_candidate_fingerprint(metadata: Path, state: dict[str, Any]) -> str:
+    head = metadata_value(metadata, "candidate_head")
+    review_head = metadata_value(metadata, "candidate_review_head") if (metadata / "candidate_review_head").is_file() else head
     payload = (
         f"run={state['runId']}\nbranch={metadata_value(metadata, 'candidate_branch')}\n"
         f"base={metadata_value(metadata, 'candidate_base')}\n"
         f"base_head={metadata_value(metadata, 'candidate_base_head')}\n"
         f"head={metadata_value(metadata, 'candidate_head')}\n"
         f"tree={metadata_value(metadata, 'candidate_tree')}\n"
-    )
+    ) + review_identity_suffix(head, review_head)
     return subprocess.run(["git", "hash-object", "--stdin"], input=payload, check=True,
                           capture_output=True, text=True).stdout.strip()
 
@@ -534,15 +578,20 @@ def require_ship_commit(store: Store, state: dict[str, Any], commit: str) -> Pat
     branch = subprocess.run(["git", "branch", "--show-current"], check=True, capture_output=True, text=True).stdout.strip()
     head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     tree = subprocess.run(["git", "rev-parse", f"{commit}^{{tree}}"], check=True, capture_output=True, text=True).stdout.strip()
-    parent = subprocess.run(["git", "rev-parse", f"{commit}^"], check=True, capture_output=True, text=True).stdout.strip()
+    ancestry = git_text("rev-list", "--parents", "-n", "1", commit).split()
     status = subprocess.run(["git", "status", "--porcelain"], check=True, capture_output=True, text=True).stdout
     expect(branch == state["git"]["branch"] and head == commit and not status,
            "Ship result requires the exact clean commit on the recorded branch")
     expect(metadata_value(metadata, "candidate_branch") == branch
            and metadata_value(metadata, "candidate_base") == state["git"]["baseBranch"],
            "Ship commit provenance conflicts with the reviewed candidate")
+    candidate_head = metadata_value(metadata, "candidate_head")
+    review_head = recovery_review_head(store, state, candidate_head)
+    recorded_origin = metadata_value(metadata, "candidate_review_head") if (metadata / "candidate_review_head").is_file() else candidate_head
+    expect(recorded_origin == review_head, "Ship review origin conflicts with recovery evidence")
+    reuse = commit == candidate_head and review_head != candidate_head
     expect(tree == metadata_value(metadata, "candidate_tree")
-           and parent == metadata_value(metadata, "candidate_head"),
+           and (reuse or ancestry == [commit, candidate_head]),
            "Ship commit does not contain the reviewed candidate")
     return metadata
 
@@ -589,6 +638,8 @@ def command_detect(store: Store, _args: argparse.Namespace) -> int:
 
 def command_init(store: Store, args: argparse.Namespace) -> int:
     with store.lock():
+        expect(not (store.root / "ship-reverify-pending.json").exists(),
+               "finish pending reverify-ship before starting a new run")
         previous: dict[str, Any] | None
         try:
             previous = store.read()
@@ -733,7 +784,7 @@ def command_increment_retry(store: Store, args: argparse.Namespace) -> int:
         metadata = store.root.parent / "pulmu-metadata"
         for name in (
             "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint", "quench_attempt",
-            "candidate_tree", "candidate_head", "candidate_branch", "candidate_base", "candidate_base_head",
+            "candidate_tree", "candidate_head", "candidate_review_head", "candidate_branch", "candidate_base", "candidate_base_head",
         ):
             (metadata / name).unlink(missing_ok=True)
         (store.root.parent / "pulmu-quench.log").unlink(missing_ok=True)
@@ -766,7 +817,7 @@ def command_replan(store: Store, args: argparse.Namespace) -> int:
             "forge", "risk", "areas", "pattern", "execution_mode", "writer", "review_mode",
             "test_review", "security_review", "compatibility_review", "quench_fingerprint",
             "hone_fingerprint", "delivery_fingerprint", "quench_attempt", "candidate_tree",
-            "candidate_head", "candidate_branch", "candidate_base", "candidate_base_head",
+            "candidate_head", "candidate_review_head", "candidate_branch", "candidate_base", "candidate_base_head",
             "title", "summary", "risk_reason",
         ):
             (metadata / name).unlink(missing_ok=True)
@@ -782,6 +833,100 @@ def command_replan(store: Store, args: argparse.Namespace) -> int:
         touch(state)
         store.write(state)
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_STAGE=shape\nPULMU_REPLAN_REASON={reason}")
+    return 0
+
+
+def command_review_origin(store: Store, args: argparse.Namespace) -> int:
+    with store.lock(exclusive=False):
+        state = read_required(store)
+        expect(state["runId"] == args.expect_run_id, "Run Context runId changed; refusing stale review origin")
+        expect(args.head == git_text("rev-parse", "HEAD"), "review origin requires current HEAD")
+        print(recovery_review_head(store, state, args.head))
+    return 0
+
+
+def command_reverify_ship(store: Store, args: argparse.Namespace) -> int:
+    with store.lock():
+        state = read_required(store, allow_pending_reverify=True)
+        pending = store.root / "ship-reverify-pending.json"
+        expect(state["runId"] == args.expect_run_id, "Run Context runId changed; refusing stale recovery")
+        expect(state["status"] in {"running", "failed", "interrupted"}
+               and (state["stage"]["current"] == "ship" or
+                    (pending.exists() and state["status"] == "running" and state["stage"]["current"] == "quench")),
+               "reverification requires an unfinished Ship stage")
+        metadata = require_final_metadata(store, state)
+        head = git_text("rev-parse", "HEAD")
+        expect(args.commit == head, "reverification requires the exact current commit SHA")
+        branch = git_text("branch", "--show-current")
+        expect(branch == state["git"]["branch"]
+               and metadata_value(store.root.parent, "pulmu-branch") == branch
+               and metadata_value(store.root.parent, "pulmu-base") == state["git"]["baseBranch"],
+               "Ship recovery branch provenance changed")
+        if pending.exists():
+            expect(pending.is_file() and not pending.is_symlink(), "invalid pending Ship recovery")
+            try:
+                journal = json.loads(pending.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ContextError("invalid pending Ship recovery") from exc
+            expect(isinstance(journal, dict) and set(journal) == {
+                "runId", "branch", "base", "head", "reviewHead", "originalHead", "fingerprint",
+            }, "invalid pending Ship recovery")
+            expect(journal["runId"] == state["runId"] and journal["branch"] == branch
+                   and journal["base"] == state["git"]["baseBranch"] and journal["head"] == head,
+                   "pending Ship recovery conflicts with the current run or HEAD")
+            for key in ("originalHead", "reviewHead", "fingerprint"):
+                expect(isinstance(journal[key], str) and re.fullmatch(r"[0-9a-f]{40,64}", journal[key]) is not None,
+                       "invalid pending Ship recovery identity")
+            old_head, origin, fingerprint = journal["originalHead"], journal["reviewHead"], journal["fingerprint"]
+            for name in ("quench_fingerprint", "hone_fingerprint", "delivery_fingerprint"):
+                expect(not (metadata / name).exists() or metadata_value(metadata, name) == fingerprint,
+                       "evidence changed during pending Ship recovery")
+        else:
+            fingerprint = stored_candidate_fingerprint(metadata, state)
+            for name in ("quench_fingerprint", "hone_fingerprint", "delivery_fingerprint"):
+                expect(metadata_value(metadata, name) == fingerprint, f"{name} does not identify the original reviewed candidate")
+            old_head = metadata_value(metadata, "candidate_head")
+            origin = recovery_review_head(store, state, old_head)
+            recorded_origin = metadata_value(metadata, "candidate_review_head") if (metadata / "candidate_review_head").is_file() else old_head
+            expect(origin == recorded_origin, "Ship review origin conflicts with recovery evidence")
+        expect(subprocess.run(["git", "merge-base", "--is-ancestor", origin, old_head]).returncode == 0,
+               "Ship review origin is not an ancestor of the original candidate")
+        expect(head == old_head or git_text("rev-list", "--parents", "-n", "1", head).split() == [head, old_head],
+               "Ship recovery accepts only the original HEAD or its single-parent child")
+        if state["status"] != "running":
+            store.snapshot(state)
+        receipt = {
+            "runId": state["runId"], "branch": branch, "base": state["git"]["baseBranch"],
+            "head": head, "reviewHead": origin,
+        }
+        # Write-ahead admission lets the same operation finish after interruption
+        # at any invalidation/state-write boundary. Other state mutations wait.
+        if not pending.exists():
+            atomic_text(pending, json.dumps({**receipt, "originalHead": old_head, "fingerprint": fingerprint}) + "\n")
+        atomic_text(store.root / "ship-reverify.json", json.dumps(receipt) + "\n")
+        for name in (
+            "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint", "quench_attempt",
+            "candidate_tree", "candidate_head", "candidate_review_head", "candidate_branch",
+            "candidate_base", "candidate_base_head", "title", "summary", "risk_reason",
+            "changes", "review-focus", "paths.z",
+        ):
+            (metadata / name).unlink(missing_ok=True)
+        for path in (store.root.parent / "pulmu-quench.log", store.root.parent / "pulmu-ship-commit", store.root / "ship-recovery"):
+            path.unlink(missing_ok=True)
+        reviews = store.root.parent / "pulmu-reviews"
+        if reviews.is_dir():
+            for result in reviews.iterdir():
+                if result.is_file() and not result.is_symlink():
+                    result.unlink()
+        state["status"] = "running"
+        state["stage"] = {"current": "quench", "status": "in_progress"}
+        state["agents"]["active"] = []
+        state["git"]["commit"] = None
+        state["completedAt"] = state["interruptedAt"] = state["error"] = None
+        touch(state)
+        store.write(state)
+        pending.unlink()
+    print(f"PULMU_RUN_ID={state['runId']}\nPULMU_RUN_STAGE=quench\nPULMU_REVIEW_HEAD={origin}")
     return 0
 
 
@@ -836,7 +981,7 @@ def command_quench_evidence(store: Store, args: argparse.Namespace) -> int:
                "metadata runId changed; refusing stale Quench operation")
         evidence = (
             "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint",
-            "candidate_tree", "candidate_head", "candidate_branch", "candidate_base", "candidate_base_head",
+            "candidate_tree", "candidate_head", "candidate_review_head", "candidate_branch", "candidate_base", "candidate_base_head",
         )
         if args.action == "begin":
             expect(isinstance(args.attempt, str) and re.fullmatch(r"[A-Za-z0-9._-]{8,128}", args.attempt) is not None,
@@ -865,13 +1010,17 @@ def command_quench_evidence(store: Store, args: argparse.Namespace) -> int:
             expect(source.is_file(), "Quench log is missing")
             current_branch = subprocess.run(["git", "branch", "--show-current"], check=True, capture_output=True, text=True).stdout.strip()
             current_head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-            current_base = subprocess.run(["git", "rev-parse", args.base], check=True, capture_output=True, text=True).stdout.strip()
+            current_base = base_commit(args.base)
             expect(current_branch == args.branch and current_head == args.head and current_base == args.base_head,
                    "Git identity changed before Quench evidence publication")
             expect(git_candidate_tree(store) == args.tree, "candidate changed before Quench evidence publication")
+            review_head = recovery_review_head(store, state, args.head)
+            expect((args.review_head or args.head) == review_head, "Quench review origin changed")
+            expect(current_candidate_fingerprint(store, state) == args.fingerprint, "Quench fingerprint does not match candidate identity")
             values = {
                 "candidate_tree": args.tree,
                 "candidate_head": args.head,
+                "candidate_review_head": review_head,
                 "candidate_branch": args.branch,
                 "candidate_base": args.base,
                 "candidate_base_head": args.base_head,
@@ -1180,6 +1329,7 @@ def parser() -> argparse.ArgumentParser:
     quench.add_argument("--base")
     quench.add_argument("--base-head")
     quench.add_argument("--head")
+    quench.add_argument("--review-head")
     quench.add_argument("--tree")
     quench.add_argument("--fingerprint")
     quench.add_argument("--log")
@@ -1203,6 +1353,10 @@ def parser() -> argparse.ArgumentParser:
     complete.add_argument("--commit", required=True)
     complete.add_argument("--pr-number", type=int)
     complete.add_argument("--pr-url")
+    reverify = sub.add_parser("reverify-ship")
+    reverify.add_argument("--commit", required=True)
+    origin = sub.add_parser("review-origin")
+    origin.add_argument("--head", required=True)
     recover = sub.add_parser("recover-ship")
     recover.add_argument("--commit", required=True)
     validate_ship = sub.add_parser("validate-ship")
@@ -1215,7 +1369,7 @@ def parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show")
     show.add_argument("--format", choices=("json", "text"), default="json")
     for command in (stage, agents, metadata, retry, replan, quench, verification, review_attempt, review, review_check,
-                    complete, recover, validate_ship, fail, interrupt):
+                    complete, reverify, origin, recover, validate_ship, fail, interrupt):
         command.add_argument("--expect-run-id", required=True)
     return result
 
@@ -1237,6 +1391,8 @@ def main() -> int:
         "review-result": command_review_result,
         "review-check": command_review_check,
         "complete": command_complete,
+        "reverify-ship": command_reverify_ship,
+        "review-origin": command_review_origin,
         "recover-ship": command_recover_ship,
         "validate-ship": command_validate_ship,
         "fail": command_fail,

@@ -4,6 +4,25 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- Move bounded repository/test scouts to GPT-6 Luna and implementation, design, analysis, and reviewers to GPT-6.1 Sol. Smith and Designer use medium effort; critical analysis and review retain high effort.
+- Use scoped fresh-context handoffs, prevent nested agent fan-out, reuse scout evidence, and defer detailed Run Context documentation until needed. Preserve the seven stages, single writer, and required independent/specialist reviews.
+
+### Added
+
+- Evidence-first requirements clarification with focused questions, explicit handling of pending answers and reversible assumptions, and propagation of accepted answers to implementation and review.
+- Optional paired efficiency evaluation guidance and an offline report helper covering complete token usage, per-case elapsed time, acceptance/review quality, retries, and human correction time. Incomplete usage and failed quality gates cannot qualify as an improvement; no measured model-performance claim is made.
+- A paired slowdown guard with declared thresholds, offending samples, and total/maximum elapsed time alongside the median.
+
+### Fixed
+
+- Run shell fixtures in isolated fail-fast processes so intermediate assertion failures cannot be hidden by later success; clean temporary fixtures on failure.
+- Restore every installer backup after interruption, including the window before replacement registration; retain backups if rollback fails.
+- Resolve remote-only base refs consistently across branching, verification, and delivery while retaining logical PR base names.
+- Reopen hook-mutated Ship candidates for fresh verification and full-diff review, preserving commits and staged content; reuse clean verified commits without duplication.
+- Keep required clarification pending instead of marking failure; assign disposable preview rendering to the Orchestrator and honor settled design choices.
+
 ## [0.4.0] - 2026-09-08
 
 ### Added

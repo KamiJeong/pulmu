@@ -38,10 +38,14 @@ Custom agents are also subordinate work, never plan items. Report them only thro
 
 Set the active agent list immediately before spawning a stage's agents and clear it after they finish. Hammer records `pulmu_smith` only when Smith is the designated writer; an Orchestrator-written run keeps Smith absent. On retries, update both channels through the existing stage sequence and preserve the same run ID:
 
+Use `scripts/run-context.sh set-agents <role>... --expect-run-id "$RUN_ID"` to record the actual active roles; omit the roles to clear the list. Do not edit the JSON directly.
+
 ```text
 Quench failure: increment-retry quench → Hammer → Quench
 Hone finding:  increment-retry hone → Hammer → Quench → Hone
 ```
+
+Call `scripts/run-context.sh increment-retry <quench|hone> --expect-run-id "$RUN_ID"` before each fix cycle. The run-wide limits are three Quench fixes and two Hone refinements; replanning does not reset them.
 
 Before advancing normally, mark the current item `completed` and the next item `in_progress` in the same plan update. If Quench fails, return the existing Quench item to `pending`, move the existing Hammer item to `in_progress`, have the designated writer fix the failure, complete Hammer, and move Quench back to `in_progress`. If Hone reports blocking findings, reuse the existing items and writer for Hammer → Quench → Hone. Never duplicate retry or reviewer items.
 
@@ -134,4 +138,10 @@ Before `hone --result pass`, open and record every receipt required by [review-c
 
 Ignite defaults to `<type>/<slug>`, for example `feat/customer-search`. For an explicit user name or repository convention, append `--branch "feature/PROJ-123-customer-search"` before the task argument. This is a complete name, not a prefix, and overrides `git.branch_prefix`. A collision receives a numeric suffix; use the reported `PULMU_BRANCH`. Branch ownership comes from saved provenance, never its spelling.
 
-If a run cannot continue, record the terminal state with `run-context.sh fail` before reporting that Pulmu stopped. For user or session interruption, use `interrupt`. Pass only a stable error code and concise safe explanation—never environment values, tokens, complete command output, logs, or model responses.
+## Pending input and stopped work
+
+A required clarification is pending input, not a failed or interrupted stage. Preserve the current stage and work, pause dependent implementation, and continue only independent read-only investigation. Before Ignite, do not create Run Context merely to represent the wait. Resume when the answer arrives or the user explicitly delegates the decision; follow [requirements-clarification.md](requirements-clarification.md).
+
+A failed check or blocking review follows the bounded correction rules above. If work cannot safely continue because a prerequisite is unavailable or the correction budget is exhausted, record `run-context.sh fail` before reporting the stop. User cancellation or a known session interruption uses `interrupt`; merely waiting for an answer does not. Pass only a stable error code and concise safe explanation—never environment values, tokens, complete command output, logs, or model responses.
+
+If a commit hook changes the candidate during Ship, use the guarded reverify path in [delivery-policy.md](delivery-policy.md#commit-hook-reverification), then run fresh Quench and Hone. Do not attempt a generic backward stage transition or discard the hook commit.

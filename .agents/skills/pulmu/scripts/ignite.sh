@@ -84,7 +84,7 @@ RUN_CONTEXT_OUTPUT="$(pulmu_run_context init \
 RUN_ID="$(sed -n 's/^PULMU_RUN_ID=//p' <<<"$RUN_CONTEXT_OUTPUT")"
 [[ -n "$RUN_ID" ]] || pulmu_die "Run Context initialization did not return a runId"
 
-if ! git switch -c "$BRANCH" "$BASE" >/dev/null; then
+if ! git switch -c "$BRANCH" "$(pulmu_resolve_base "$BASE")" >/dev/null; then
   pulmu_run_context fail --code IGNITE_BRANCH_FAILED --message "could not create the prepared Pulmu branch" --expect-run-id "$RUN_ID" >/dev/null || true
   pulmu_die "could not create Pulmu branch: $BRANCH"
 fi
@@ -92,7 +92,7 @@ printf '%s\n' "$BASE" > "$GIT_DIR/pulmu-base"
 printf '%s\n' "$BRANCH" > "$GIT_DIR/pulmu-branch"
 printf '%s\n' "$TASK" > "$GIT_DIR/pulmu-task"
 mkdir -p "$METADATA_DIR"
-rm -f "$METADATA_DIR"/* "$GIT_DIR/pulmu-ship-commit" "$GIT_DIR/pulmu-quench.log"
+rm -f "$METADATA_DIR"/* "$GIT_DIR/pulmu-ship-commit" "$GIT_DIR/pulmu-quench.log" "$GIT_DIR/pulmu/ship-reverify.json"
 rm -rf "$GIT_DIR/pulmu-reviews"
 pulmu_metadata_write version 1
 pulmu_metadata_write status provisional

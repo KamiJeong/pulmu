@@ -86,6 +86,7 @@ SHIP_STATE="$GIT_DIR/pulmu-ship-commit"
 RESUME=0
 CANDIDATE_TREE="$(pulmu_metadata_read candidate_tree 2>/dev/null || true)"
 CANDIDATE_HEAD="$(pulmu_metadata_read candidate_head 2>/dev/null || true)"
+CANDIDATE_REVIEW_HEAD="$(pulmu_metadata_read candidate_review_head 2>/dev/null || true)"
 STORED_COMMIT=""
 if [[ -f "$SHIP_STATE" ]]; then
   marker_run="$(sed -n '1p' "$SHIP_STATE")"; marker_branch="$(sed -n '2p' "$SHIP_STATE")"
@@ -121,16 +122,24 @@ if [[ "$RESUME" -eq 0 ]]; then
   pulmu_evidence_matches delivery_fingerprint || pulmu_die "working tree changed after delivery metadata was generated"
   PATHS=()
   while IFS= read -r -d '' path; do PATHS+=("$path"); done < "$METADATA_DIR/paths.z"
-  [[ "${#PATHS[@]}" -gt 0 ]] || pulmu_die "there are no expected paths to ship"
   git diff --cached --quiet || pulmu_die "Ship found pre-existing staged changes and left the index unchanged; unstage them before retrying"
   [[ -n "$CANDIDATE_TREE" && "$CANDIDATE_TREE" == "$(pulmu_candidate_tree)" ]] || pulmu_die "Ship candidate tree does not match Quench evidence"
-  git add -- "${PATHS[@]}"
-  git diff --cached --quiet && pulmu_die "there are no staged changes to commit"
-  [[ "$(git write-tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "staged tree contains content outside the verified candidate"
-  git commit -m "$TITLE"
-  COMMIT="$(git rev-parse HEAD)"
-  [[ "$(git rev-parse "$COMMIT^{tree}")" == "$CANDIDATE_TREE" ]] || pulmu_die "commit hooks changed the reviewed candidate; Quench must run again"
-  [[ "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "commit hooks changed the working tree; Quench must run again"
+  if [[ "${#PATHS[@]}" -eq 0 && -n "$CANDIDATE_REVIEW_HEAD" && "$CANDIDATE_REVIEW_HEAD" != "$CANDIDATE_HEAD" && \
+        "$(git rev-parse HEAD)" == "$CANDIDATE_HEAD" && -z "$(git status --porcelain)" ]]; then
+    # Fresh Quench/Hone evidence includes the original pre-hook review origin.
+    COMMIT="$CANDIDATE_HEAD"
+  else
+    [[ "${#PATHS[@]}" -gt 0 ]] || pulmu_die "there are no expected paths to ship"
+    git add -- "${PATHS[@]}"
+    git diff --cached --quiet && pulmu_die "there are no staged changes to commit"
+    [[ "$(git write-tree)" == "$CANDIDATE_TREE" ]] || pulmu_die "staged tree contains content outside the verified candidate"
+    if ! git commit -m "$TITLE"; then
+      pulmu_die "commit failed; preserve the index and use run-context.sh reverify-ship --commit $(git rev-parse HEAD) --expect-run-id $EXPECT_RUN_ID before fresh Quench/Hone"
+    fi
+    COMMIT="$(git rev-parse HEAD)"
+    [[ "$(git rev-parse "$COMMIT^{tree}")" == "$CANDIDATE_TREE" && "$(pulmu_candidate_tree)" == "$CANDIDATE_TREE" ]] ||
+      pulmu_die "commit hooks changed the candidate; use run-context.sh reverify-ship --commit $COMMIT --expect-run-id $EXPECT_RUN_ID before fresh Quench/Hone"
+  fi
   marker_tmp="$SHIP_STATE.$$"
   printf '%s\n%s\n%s\n%s\n%s\n' "$EXPECT_RUN_ID" "$BRANCH" "$BASE" "$COMMIT" "$CANDIDATE_TREE" > "$marker_tmp"
   mv "$marker_tmp" "$SHIP_STATE"
