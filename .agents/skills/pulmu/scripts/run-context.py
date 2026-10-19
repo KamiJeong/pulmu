@@ -22,6 +22,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pulmu_evidence import Evidence, EvidenceError
+from pulmu_agents import AgentRecords, canonical_role, profile as agent_profile
+
 
 SCHEMA_VERSION = 2
 WORKFLOW = "pulmu"
@@ -545,6 +549,8 @@ def require_final_metadata(store: Store, state: dict[str, Any]) -> Path:
         actual = metadata_value(metadata, name) if path.is_file() else legacy_defaults.get(name)
         expect(value is not None and actual == value,
                f"finalized metadata conflicts with Run Context: {name}")
+    if state["stage"]["current"] in {"hammer", "quench", "hone", "ship"}:
+        Evidence(store, state).require()
     return metadata
 
 
@@ -553,6 +559,7 @@ def require_exact_evidence(store: Store, state: dict[str, Any], *names: str) -> 
     fingerprint = current_candidate_fingerprint(store, state)
     for name in names:
         expect(metadata_value(metadata, name) == fingerprint, f"{name} does not match the current candidate")
+    Evidence(store, state).require_ui(fingerprint)
     return fingerprint
 
 
@@ -575,6 +582,10 @@ def require_ship_commit(store: Store, state: dict[str, Any], commit: str) -> Pat
     fingerprint = stored_candidate_fingerprint(metadata, state)
     for name in ("quench_fingerprint", "hone_fingerprint", "delivery_fingerprint"):
         expect(metadata_value(metadata, name) == fingerprint, f"{name} does not identify the reviewed candidate")
+    expect(base_commit(state["git"]["baseBranch"]) == metadata_value(metadata, "candidate_base_head"),
+           "base commit changed after verification; reverify Ship before delivery")
+    Evidence(store, state).require_ui(fingerprint)
+    require_review_receipts(store, state, metadata, fingerprint)
     branch = subprocess.run(["git", "branch", "--show-current"], check=True, capture_output=True, text=True).stdout.strip()
     head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
     tree = subprocess.run(["git", "rev-parse", f"{commit}^{{tree}}"], check=True, capture_output=True, text=True).stdout.strip()
@@ -712,10 +723,12 @@ def command_set_stage(store: Store, args: argparse.Namespace) -> int:
                 metadata = require_final_metadata(store, state)
             if args.stage == "hammer":
                 expect((metadata / "verification-plan").is_file(), "Hammer requires the Shape verification plan")
+                Evidence(store, state).seal()
             if args.stage == "hone":
                 require_exact_evidence(store, state, "quench_fingerprint")
             if args.stage == "ship":
-                require_exact_evidence(store, state, "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint")
+                candidate = require_exact_evidence(store, state, "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint")
+                require_review_receipts(store, state, metadata, candidate)
             state["stage"].update(current=args.stage, status="in_progress")
             touch(state)
             store.write(state)
@@ -724,7 +737,7 @@ def command_set_stage(store: Store, args: argparse.Namespace) -> int:
 
 
 def command_set_agents(store: Store, args: argparse.Namespace) -> int:
-    unique = list(dict.fromkeys(args.agents))
+    unique = list(dict.fromkeys(canonical_role(name) for name in args.agents))
     for agent in unique:
         expect(AGENT_RE.fullmatch(agent) is not None, f"invalid Pulmu agent name: {agent}")
     expect(len(unique) <= 16, "too many active agents")
@@ -780,6 +793,7 @@ def command_increment_retry(store: Store, args: argparse.Namespace) -> int:
         state["retries"][args.stage] += 1
         limit = RETRY_LIMITS[args.stage]
         expect(state["retries"][args.stage] <= limit, f"{args.stage} retry limit ({limit}) exhausted")
+        Evidence(store, state).invalidate()
         state["stage"] = {"current": "hammer", "status": "in_progress"}
         metadata = store.root.parent / "pulmu-metadata"
         for name in (
@@ -810,6 +824,7 @@ def command_replan(store: Store, args: argparse.Namespace) -> int:
         metadata = store.root.parent / "pulmu-metadata"
         expect(metadata_value(metadata, "run_id") == state["runId"],
                "metadata runId conflicts with Run Context")
+        Evidence(store, state).invalidate(replan=True)
         state.update(forge=None, risk=None, areas=[], pattern=False, execution=None)
         state["stage"] = {"current": "shape", "status": "in_progress"}
         state["agents"]["active"] = []
@@ -904,6 +919,7 @@ def command_reverify_ship(store: Store, args: argparse.Namespace) -> int:
         if not pending.exists():
             atomic_text(pending, json.dumps({**receipt, "originalHead": old_head, "fingerprint": fingerprint}) + "\n")
         atomic_text(store.root / "ship-reverify.json", json.dumps(receipt) + "\n")
+        Evidence(store, state).invalidate()
         for name in (
             "quench_fingerprint", "hone_fingerprint", "delivery_fingerprint", "quench_attempt",
             "candidate_tree", "candidate_head", "candidate_review_head", "candidate_branch",
@@ -1008,6 +1024,21 @@ def command_quench_evidence(store: Store, args: argparse.Namespace) -> int:
             expect(isinstance(args.log, str) and bool(args.log), "Quench log is missing")
             source = Path(args.log)
             expect(source.is_file(), "Quench log is missing")
+            require_final_metadata(store, state)
+            # The publisher checks the wrapper's exact plan/check records too.
+            plan = metadata_value(metadata, "verification-plan").splitlines()
+            expected_checks = []
+            for line in plan:
+                fields = line.split("\t")
+                expect(len(fields) == 3 and all(fields), "malformed verification plan")
+                expected_checks.append(f"PULMU_QUENCH_CHECK_EXIT={fields[0]}:0".encode("utf-8"))
+            # Commands may emit arbitrary bytes. Inspect wrapper markers without
+            # decoding or changing the original log retained below.
+            log_lines = source.read_bytes().splitlines()
+            actual_checks = [line for line in log_lines if line.startswith(b"PULMU_QUENCH_CHECK_EXIT=")]
+            expect(bool(expected_checks) and actual_checks == expected_checks
+                   and log_lines[-1:] == [b"PULMU_QUENCH=PASS"], "Quench log does not prove the complete passing plan")
+            Evidence(store, state).require_ui(args.fingerprint)
             current_branch = subprocess.run(["git", "branch", "--show-current"], check=True, capture_output=True, text=True).stdout.strip()
             current_head = subprocess.run(["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
             current_base = base_commit(args.base)
@@ -1047,6 +1078,9 @@ def command_verification_plan(store: Store, args: argparse.Namespace) -> int:
         expect(run_file.is_file() and run_file.read_text(encoding="utf-8").strip() == args.expect_run_id,
                "metadata runId changed; refusing stale verification plan")
         expect(source.is_file() and source.stat().st_size > 0, "verification plan is empty")
+        evidence = Evidence(store, state)
+        expect(not evidence.required or not (evidence.root / "seal.json").exists(),
+               "verification plan is sealed; replan before changing it")
         atomic_copy(source, metadata / "verification-plan")
         for name in ("quench_fingerprint", "hone_fingerprint", "delivery_fingerprint"):
             (metadata / name).unlink(missing_ok=True)
@@ -1069,6 +1103,7 @@ def command_review_attempt(store: Store, args: argparse.Namespace) -> int:
         reviews.mkdir(mode=0o700, exist_ok=True)
         path = reviews / f"{args.role}.json"
         submissions = 1
+        attempt_group = secrets.token_hex(12)
         if path.is_file():
             try:
                 prior = json.loads(path.read_text(encoding="utf-8"))
@@ -1077,13 +1112,14 @@ def command_review_attempt(store: Store, args: argparse.Namespace) -> int:
             if prior.get("candidate") == candidate:
                 expect(prior.get("completion") == "incomplete", f"{args.role} already submitted a completed result")
                 submissions = prior.get("submissions", 0) + 1
+                attempt_group = prior.get("attemptGroup", attempt_group)
         expect(isinstance(submissions, int) and not isinstance(submissions, bool) and submissions <= 2,
                f"{args.role} result repair limit exhausted")
         receipt = {
             "role": args.role, "runId": state["runId"], "candidate": candidate,
             "completion": "incomplete", "severity": "high",
             "findings": "Reviewer result was not received.", "evidence": "not received", "limitations": "pending",
-            "submissions": submissions, "received": False,
+            "submissions": submissions, "received": False, "attemptGroup": attempt_group,
         }
         atomic_text(path, json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_REVIEW_ATTEMPT={args.role}\nPULMU_REVIEW_ATTEMPT_NUMBER={submissions}")
@@ -1095,9 +1131,9 @@ def command_review_result(store: Store, args: argparse.Namespace) -> int:
     expect(args.completion in {"complete", "incomplete"}, "invalid review completion")
     expect(args.severity in {"none", "low", "medium", "high"}, "invalid review severity")
     expect(not (args.completion == "incomplete" and args.severity == "none"), "incomplete review must explain a severity")
-    findings = concise(args.findings, 2000)
-    evidence = concise(args.evidence, 2000)
-    limitations = concise(args.limitations, 1000)
+    findings, evidence, limitations = args.findings, args.evidence, args.limitations
+    expect(all(isinstance(value, str) and len(value) <= 16000 for value in (findings, evidence, limitations)),
+           "review text exceeds 16000 characters; preserve full source and supply concise fields")
     expect(bool(findings), "review findings summary is required")
     expect(bool(evidence), "review evidence summary is required")
     with store.lock():
@@ -1127,9 +1163,48 @@ def command_review_result(store: Store, args: argparse.Namespace) -> int:
             "findings": findings, "evidence": evidence, "limitations": limitations,
             "submissions": submissions, "received": True,
         }
+        if "attemptGroup" in prior:
+            receipt["attemptGroup"] = prior["attemptGroup"]
+        evidence_store = Evidence(store, state)
+        if evidence_store.required:
+            receipt["provenance"] = evidence_store.review_provenance(getattr(args, "provenance", None), receipt)
         atomic_text(path, json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_REVIEW_RESULT={args.role}")
     return 0
+
+
+def require_review_receipts(store, state, metadata, candidate):
+    evidence_store = Evidence(store, state)
+    execution_ids = set()
+    reviews = store.root.parent / "pulmu-reviews"
+    for role in required_reviewers(state, metadata):
+        path = reviews / f"{role}.json"
+        expect(path.is_file(), f"Hone requires a result from {role}")
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ContextError(f"malformed result from {role}: {exc}") from exc
+        expected_fields = {"role", "runId", "candidate", "completion", "severity", "findings", "evidence", "limitations", "submissions", "received"}
+        if isinstance(receipt, dict) and "attemptGroup" in receipt:
+            expected_fields.add("attemptGroup")
+        if evidence_store.required:
+            expected_fields.add("provenance")
+        expect(isinstance(receipt, dict) and set(receipt) == expected_fields, f"malformed result from {role}")
+        expect(receipt["role"] == role and receipt["runId"] == state["runId"]
+               and receipt["candidate"] == candidate, f"stale or mismatched result from {role}")
+        expect(receipt["completion"] == "complete", f"incomplete result from {role}")
+        expect(receipt["received"] is True, f"missing result from {role}")
+        expect(receipt["severity"] in {"none", "low"}, f"blocking {receipt['severity']} finding from {role}")
+        expect(isinstance(receipt["findings"], str) and bool(receipt["findings"]), f"empty result from {role}")
+        expect(isinstance(receipt["evidence"], str) and bool(receipt["evidence"]), f"empty evidence from {role}")
+        expect(isinstance(receipt["limitations"], str), f"malformed limitations from {role}")
+        expect(isinstance(receipt["submissions"], int) and not isinstance(receipt["submissions"], bool)
+               and 1 <= receipt["submissions"] <= 2, f"invalid submission count from {role}")
+        evidence_store.require_review(receipt)
+        if evidence_store.required:
+            execution_id = receipt["provenance"]["executionId"]
+            expect(execution_id not in execution_ids, "independent reviewer roles must use separate executions")
+            execution_ids.add(execution_id)
 
 
 def command_review_check(store: Store, args: argparse.Namespace) -> int:
@@ -1139,26 +1214,7 @@ def command_review_check(store: Store, args: argparse.Namespace) -> int:
         expect(state["stage"]["current"] == "hone", "Hone PASS can be recorded only during Hone")
         metadata = require_final_metadata(store, state)
         candidate = require_exact_evidence(store, state, "quench_fingerprint")
-        reviews = store.root.parent / "pulmu-reviews"
-        for role in required_reviewers(state, metadata):
-            path = reviews / f"{role}.json"
-            expect(path.is_file(), f"Hone requires a result from {role}")
-            try:
-                receipt = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-                raise ContextError(f"malformed result from {role}: {exc}") from exc
-            expected_fields = {"role", "runId", "candidate", "completion", "severity", "findings", "evidence", "limitations", "submissions", "received"}
-            expect(isinstance(receipt, dict) and set(receipt) == expected_fields, f"malformed result from {role}")
-            expect(receipt["role"] == role and receipt["runId"] == state["runId"]
-                   and receipt["candidate"] == candidate, f"stale or mismatched result from {role}")
-            expect(receipt["completion"] == "complete", f"incomplete result from {role}")
-            expect(receipt["received"] is True, f"missing result from {role}")
-            expect(receipt["severity"] in {"none", "low"}, f"blocking {receipt['severity']} finding from {role}")
-            expect(isinstance(receipt["findings"], str) and bool(receipt["findings"]), f"empty result from {role}")
-            expect(isinstance(receipt["evidence"], str) and bool(receipt["evidence"]), f"empty evidence from {role}")
-            expect(isinstance(receipt["limitations"], str), f"malformed limitations from {role}")
-            expect(isinstance(receipt["submissions"], int) and not isinstance(receipt["submissions"], bool)
-                   and 1 <= receipt["submissions"] <= 2, f"invalid submission count from {role}")
+        require_review_receipts(store, state, metadata, candidate)
         atomic_text(metadata / "hone_fingerprint", candidate + "\n")
     print(f"PULMU_RUN_ID={state['runId']}\nPULMU_REVIEW_GATE=pass")
     return 0
@@ -1291,6 +1347,116 @@ def command_show(store: Store, args: argparse.Namespace) -> int:
     return 0
 
 
+def command_shape(store: Store, args: argparse.Namespace) -> int:
+    with store.lock():
+        state = read_required(store)
+        require_running(state, args.expect_run_id)
+        expect(state["stage"]["current"] == "shape", "intent can be recorded only in Shape")
+        require_final_metadata(store, state)
+        Evidence(store, state).record_shape(args.file)
+    print("PULMU_SHAPE=recorded")
+    return 0
+
+
+def command_ui_result(store: Store, args: argparse.Namespace) -> int:
+    with store.lock():
+        state = read_required(store)
+        require_running(state, args.expect_run_id)
+        expect(state["stage"]["current"] == "quench", "UI evidence can be recorded only in Quench")
+        require_final_metadata(store, state)
+        Evidence(store, state).record_ui(args.file, current_candidate_fingerprint(store, state), git_candidate_tree(store))
+        # Updating any observation invalidates previous approval, including a new failure.
+        for name in ("quench_fingerprint", "hone_fingerprint", "delivery_fingerprint"):
+            (store.root.parent / "pulmu-metadata" / name).unlink(missing_ok=True)
+    print("PULMU_UI=recorded")
+    return 0
+
+
+def command_candidate(store: Store, args: argparse.Namespace) -> int:
+    with store.lock(exclusive=False):
+        state = read_required(store)
+        require_running(state, args.expect_run_id)
+        require_final_metadata(store, state)
+        print(json.dumps({"runId": state["runId"], "candidate": current_candidate_fingerprint(store, state),
+                          "buildTree": git_candidate_tree(store)}))
+    return 0
+
+
+def command_evidence_summary(store: Store, args: argparse.Namespace) -> int:
+    with store.lock(exclusive=False):
+        state = read_required(store)
+        expect(state["runId"] == args.expect_run_id, "stale evidence summary run")
+        evidence = Evidence(store, state)
+        if not evidence.required:
+            print("- Evidence: legacy record; no durable Shape, UI receipts, or execution/source provenance")
+        else:
+            shape = evidence.require()
+            print("- Evidence: recorded execution/source provenance (Orchestrator-attested)")
+            print(f"- Shape contract: {evidence.root / 'shape.json'} (local, not uploaded)")
+            print(f"- Required browser/native scenarios: {len(shape['ui']['scenarios'])}")
+            for scenario in shape['ui']['scenarios']:
+                print(f"- UI evidence: {scenario['id']} ({scenario['surface']}); retained in the local run evidence store")
+            records = AgentRecords(evidence).records()
+            if not records:
+                print("- Agent models: unverified (no dispatch/runtime model records)")
+            for record in records:
+                requested = record["requested"]
+                observed = record["observed"] or {"model": None, "effort": None}
+                print(f"- Agent {record['role']} [{record['profile']}]: {record['status']}; "
+                      f"requested {requested['model'] or 'inherited'}/{requested['effort'] or 'inherited'}; "
+                      f"observed {observed['model'] or 'unknown'}/{observed['effort'] or 'unknown'}; "
+                      f"{AgentRecords.assessment(record)}")
+    return 0
+
+
+def command_agent_profile(store: Store, args: argparse.Namespace) -> int:
+    print(json.dumps(agent_profile(args.role, args.profile)))
+    return 0
+
+
+def command_agent_record(store: Store, args: argparse.Namespace) -> int:
+    with store.lock():
+        state = read_required(store)
+        expect(state["runId"] == args.expect_run_id, "stale agent record run")
+        records = AgentRecords(Evidence(store, state))
+        if args.action == "start":
+            require_running(state, args.expect_run_id)
+            from pulmu_evidence import read_json
+            data = read_json(args.file)
+            expect(isinstance(data, dict), "agent start must be an object")
+            role = data.get("role")
+            stage = state["stage"]["current"]
+            allowed = {"inspect": {"pulmu_explorer", "pulmu_test_scout", "pulmu_risk_scout"},
+                       "shape": {"pulmu_architect", "pulmu_designer", "pulmu_risk_scout"},
+                       "hammer": {"pulmu_smith"}, "quench": {"pulmu_failure_analyst"}}
+            candidate = None
+            review_attempt = None
+            review_group = None
+            if stage == "hone":
+                metadata = require_final_metadata(store, state)
+                expect(role in required_reviewers(state, metadata), "review role conflicts with policy")
+                candidate = require_exact_evidence(store, state, "quench_fingerprint")
+                pending = read_json(store.root.parent / "pulmu-reviews" / f"{role}.json")
+                expect(isinstance(pending, dict) and pending.get("role") == role and pending.get("runId") == state["runId"]
+                       and pending.get("candidate") == candidate and pending.get("received") is False,
+                       "open a matching review attempt before agent dispatch")
+                review_attempt = pending.get("submissions")
+                expect(type(review_attempt) is int and 1 <= review_attempt <= 2, "invalid review attempt")
+                review_group = pending.get("attemptGroup")
+                expect(isinstance(review_group, str) and re.fullmatch(r"[a-f0-9]{24}", review_group), "invalid review attempt group")
+            else:
+                expect(isinstance(role, str) and role in allowed.get(stage, set()), "agent role conflicts with stage")
+            if role == "pulmu_smith":
+                expect(state["execution"] is not None and state["execution"]["writer"] == role,
+                       "Smith is not the designated writer")
+            record = records.start(args.file, candidate, review_attempt, review_group)
+        else:
+            # Permit closing an interrupted/failed run's outstanding invocation.
+            record = records.finish(args.file)
+    print(json.dumps(record))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="Manage Pulmu machine-readable Run Context")
     sub = result.add_subparsers(dest="command", required=True)
@@ -1347,7 +1513,20 @@ def parser() -> argparse.ArgumentParser:
     review.add_argument("--findings", required=True)
     review.add_argument("--evidence", required=True)
     review.add_argument("--limitations", default="none")
+    review.add_argument("--provenance")
     review_check = sub.add_parser("review-check")
+    shape = sub.add_parser("shape-contract")
+    shape.add_argument("--file", required=True)
+    ui = sub.add_parser("ui-result")
+    ui.add_argument("--file", required=True)
+    candidate = sub.add_parser("candidate")
+    evidence_summary = sub.add_parser("evidence-summary")
+    profile = sub.add_parser("agent-profile")
+    profile.add_argument("--role", required=True)
+    profile.add_argument("--profile", choices=("default", "high"), default="default")
+    agent_record = sub.add_parser("agent-record")
+    agent_record.add_argument("action", choices=("start", "finish"))
+    agent_record.add_argument("--file", required=True)
     complete = sub.add_parser("complete")
     complete.add_argument("--delivery", choices=("local", "github"), required=True)
     complete.add_argument("--commit", required=True)
@@ -1369,7 +1548,7 @@ def parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show")
     show.add_argument("--format", choices=("json", "text"), default="json")
     for command in (stage, agents, metadata, retry, replan, quench, verification, review_attempt, review, review_check,
-                    complete, reverify, origin, recover, validate_ship, fail, interrupt):
+                    complete, reverify, origin, recover, validate_ship, fail, interrupt, shape, ui, candidate, evidence_summary, agent_record):
         command.add_argument("--expect-run-id", required=True)
     return result
 
@@ -1390,6 +1569,12 @@ def main() -> int:
         "review-attempt": command_review_attempt,
         "review-result": command_review_result,
         "review-check": command_review_check,
+        "shape-contract": command_shape,
+        "ui-result": command_ui_result,
+        "candidate": command_candidate,
+        "evidence-summary": command_evidence_summary,
+        "agent-profile": command_agent_profile,
+        "agent-record": command_agent_record,
         "complete": command_complete,
         "reverify-ship": command_reverify_ship,
         "review-origin": command_review_origin,
@@ -1401,7 +1586,7 @@ def main() -> int:
     }
     try:
         return commands[args.command](store, args)
-    except ContextError as exc:
+    except (ContextError, EvidenceError) as exc:
         die(str(exc))
     return 1
 

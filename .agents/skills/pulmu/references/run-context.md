@@ -148,3 +148,9 @@ bash <skill>/scripts/pulmu-status.sh
 ```
 
 External observability tools should read `run.json` as the contract. It exposes workflow identity, run ID, lifecycle status, sanitized task metadata, Forge mode, risk, areas, Pattern use, execution path, designated writer, review assurance and routing flags, current stage, active agents, retry counts, Git branch/commit, timestamps, concise failure information, and the validated PR URL when one exists.
+
+## Durable evidence sidecars
+
+New Ignite metadata uses format 3 while Run Context remains schema 2. Format 3 requires reviewer invocation records with requested and observed (or explicitly unknown) model settings. Format 2 retains its earlier guarantees without retroactive model assurance. See [execution-evidence.md](execution-evidence.md) for sealed Shape intent, UI observations, retained artifacts, and reviewer execution/source records under `pulmu/evidence/<runId>/`. Legacy metadata format 1 is supported without inventing these records. Replan clears active intent and downstream approval; retries and Ship reverification keep intent and require fresh UI/reviewer evidence.
+
+Linked worktree support includes optional isolated initialization; see [parallel-worktrees.md](parallel-worktrees.md). Worktrees share Git refs, so Ship checks the current base commit even on clean committed retries.

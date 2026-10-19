@@ -68,3 +68,5 @@ After completion, Shape may summarize the result in one line:
 ```
 
 Review actual rendered behavior in proportion to the change. A static mock can support a direction decision, but it does not prove responsive layout, keyboard/focus behavior, semantics, contrast, or functioning interactions.
+
+For new-format runs, persist the Pattern brief and browser/native scenarios in the Shape contract. Before Quench can pass, execute the scenarios on the candidate and record tool, target/build, performed steps, observed result, limitations, and retained artifact copies. See [execution-evidence.md](execution-evidence.md). Missing tools or execution evidence block required UI verification; do not substitute a written review.

@@ -23,9 +23,20 @@ Ignite, Inspect, Shape, Hammer, Quench, Hone, and Ship are internal forge stages
 - [Choose a design direction](#when-you-have-no-ui-plan)
 - [Understand execution and completion](#execution-depth-and-results)
 - [Follow progress](#task-progress-ui)
+- [Execution evidence and parallel issues](#execution-evidence-and-parallel-issues)
 - [Configure local or GitHub delivery](#git-and-github-delivery)
 - [Handle a stopped run](#when-work-stops-or-requirements-change)
 - [Update, uninstall, or try the demo](#installation-and-demo)
+
+## Execution evidence and parallel issues
+
+New runs preserve accepted requirements, assumptions, scope, and Pattern decisions in a sealed Shape contract. Browser/native UI changes require actual tool execution, observed scenario results, the tested instance/build identity, and retained screenshots or traces before verification can pass. Pulmu checks those records; it does not provide a browser driver or make a static review equivalent to UI testing. Missing required tools or evidence block completion.
+
+Reviewer receipts retain execution IDs, declared fresh-context mode, dispatch artifacts, and original structured results. These records are **Orchestrator-attested provenance**, not authenticated execution. Custom agents inherit the parent session's permissions; read-only role instructions do not enforce a separate read-only sandbox. Legacy runs remain supported and report their weaker evidence level explicitly.
+
+For independent issues, ask `$pulmu` to use separate worktrees. The Orchestrator can prepare one worktree, branch, run ID, and evidence store per issue without changing the source working tree or its active run. Each issue keeps one writer and its normal review gates. This supports concurrent isolated runs; it does not automatically distribute an issue backlog, merge branches, or delete worktrees. Browser ports, app instances, databases, and test accounts need separate allocation too.
+
+See [execution evidence](.agents/skills/pulmu/references/execution-evidence.md) and [parallel worktrees](.agents/skills/pulmu/references/parallel-worktrees.md) for the internal contracts. New runs use metadata format 3; Run Context remains schema 2.
 
 ## Quick start
 
@@ -144,6 +155,8 @@ The bundled defaults use the following split:
 | Architect, Risk Scout, Failure Analyst, Correctness/Security/Compatibility Reviewers | `gpt-6.1-sol` / high |
 
 These IDs were checked against the [official model catalog](https://developers.openai.com/api/docs/models) and the local Codex model list on 2026-10-07; the Luna ID is `gpt-6-luna`, not `gpt-6.1-luna`. [Custom agent settings](https://learn.chatgpt.com/docs/agent-configuration/subagents) pin both model and effort, taking precedence over the main session and spawn defaults. Reinstall the managed copies and start a new Codex session to load updated role definitions; source edits do not change an already loaded role.
+
+Each invocation announces its role, requested model/effort, and reason; completion reports the outcome and observed model assurance. Optional `pulmu_smith_high` and `pulmu_test_reviewer_high` profiles use Sol 6.1 / high for the bounded conditions in [agent model policy](./.agents/skills/pulmu/references/agent-model-policy.md). Dispatch records separate configured settings from runtime reports; unavailable effective settings remain unverified. These profiles have not yet demonstrated measured quality or efficiency gains.
 
 Delegation uses fresh, scoped briefs, targeted searches, and concise evidence. Agents cannot fan out into more agents. The main session reuses scout findings, while each required reviewer gets a fresh candidate context. Detailed state documentation loads only for recovery or an uncovered operation. For repeatable measurements, the optional [efficiency evaluation guide](./.agents/skills/pulmu/references/efficiency-evaluation.md) and offline `benchmark-report.py` compare paired token, time, quality, and rework data. Missing child usage, failed quality checks, or excessive paired slowdowns cannot qualify as an improvement; reports include median, total, and maximum elapsed time. This does not measure live runs automatically or assert an unmeasured savings percentage.
 
@@ -499,7 +512,7 @@ An authenticated GitHub CLI can create a private demo repository as well:
 ## Safety boundaries
 
 - one designated task-file writer per run: Orchestrator or `pulmu_smith`
-- every other custom agent is read-only
+- every other custom agent is instructed to remain read-only; permissions are inherited from the parent
 - unrelated dirty work blocks Ignite and is never stashed or discarded
 - Quench must pass before Ship
 - self-review and independent-review receipts remain distinct; unresolved high/medium Hone findings block Ship
@@ -559,7 +572,7 @@ The repository tests need Python 3.11 or newer for `tomllib`, plus Node.js/npm f
 ./tests/test.sh
 ```
 
-The suite does not call a model. It verifies shell and TOML syntax, installation and demo packaging, the adaptive one-writer boundary, the exact seven-step progress contract, routing and Pattern behavior, metadata and branch policy, Quench/Hone evidence gates, local and GitHub delivery, Run Context lifecycle and retries, replanning, stale and malformed state, redaction, concurrency, history, legacy migration, and linked worktrees.
+The suite does not call a model. It verifies shell and TOML syntax, installation and demo packaging, the declared one-writer policy (not runtime permission isolation), the exact seven-step progress contract, routing and Pattern behavior, metadata and branch policy, Quench/Hone evidence gates, local and GitHub delivery, Run Context lifecycle and retries, replanning, stale and malformed state, redaction, concurrency, history, legacy migration, and linked worktrees.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the change and pull-request checklist, [SECURITY.md](./SECURITY.md) for private vulnerability reporting, and [CHANGELOG.md](./CHANGELOG.md) for notable project changes.
 

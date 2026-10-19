@@ -33,6 +33,14 @@ Necessity assessment
 
 Installer rollback restores all discovered backups. Remote-only bases retain their logical PR names. Hook-mutated Ship candidates can return to fresh verification and full-diff review without rewriting history; interrupted recovery initialization is replayable. Shell fixtures now fail on intermediate assertions, and efficiency reports expose paired tail regressions. Live model-performance savings remain unmeasured.
 
+## Evidence and isolation follow-up
+
+New runs persist sealed Shape contracts, gate required browser/native scenarios on retained execution records, and retain review execution/source provenance. Custom agent files no longer claim a per-role permission sandbox. Ship rechecks the base commit on recovery. Optional per-issue worktree preparation preserves the source tree/run and separates state; issue scheduling remains out of scope. Evidence fixtures test mechanics, not actual browser/model performance. Live Codex E2E and paired cost/quality measurements remain unmeasured.
+
+## Model dispatch follow-up
+
+Role defaults are retained. Smith and Test Reviewer have optional high-effort profiles with explicit selection criteria. Each dispatch records requested configuration separately from runtime-reported or unknown effective settings, keeps input/result artifacts, and binds model provenance to review evidence when available. Known reviewer profile mismatches block approval. Existing evidence remains explicitly model-unverified. Per-call progress and paired medium/high evaluation guidance are documented; real model performance measurements remain outstanding.
+
 ## Next likely work
 
 1. Run real Codex CLI E2E cases for direct, reviewed, delegated, no-change, and design-choice requests.

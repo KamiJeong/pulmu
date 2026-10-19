@@ -7,11 +7,15 @@ source "$SCRIPT_DIR/common.sh"
 TYPE="${PULMU_TASK_TYPE:-feature}"
 SLUG_OVERRIDE=""
 BRANCH_OVERRIDE=""
+BASE_OVERRIDE=""
+WORKTREE=""
 while [[ $# -gt 1 ]]; do
   case "$1" in
     --type) TYPE="${2:-}"; shift 2 ;;
     --slug) SLUG_OVERRIDE="${2:-}"; shift 2 ;;
     --branch) BRANCH_OVERRIDE="${2:-}"; [[ -n "$BRANCH_OVERRIDE" ]] || pulmu_die "--branch requires a name"; shift 2 ;;
+    --base) BASE_OVERRIDE="${2:-}"; [[ -n "$BASE_OVERRIDE" ]] || pulmu_die "--base requires a name"; shift 2 ;;
+    --worktree) WORKTREE="${2:-}"; [[ -n "$WORKTREE" ]] || pulmu_die "--worktree requires a path"; shift 2 ;;
     *) pulmu_die "unknown ignite option: $1" ;;
   esac
 done
@@ -29,6 +33,16 @@ PY
 ROOT="$(pulmu_repo_root)"
 cd "$ROOT"
 pulmu_load_config "$ROOT"
+
+if [[ -n "$WORKTREE" ]]; then
+  BASE="${BASE_OVERRIDE:-$(pulmu_base_branch)}"
+  pulmu_ref_exists "$BASE" || pulmu_die "worktree base does not exist: $BASE"
+  args=(--type "$TYPE")
+  [[ -z "$SLUG_OVERRIDE" ]] || args+=(--slug "$SLUG_OVERRIDE")
+  [[ -z "$BRANCH_OVERRIDE" ]] || args+=(--branch "$BRANCH_OVERRIDE")
+  exec python3 "$SCRIPT_DIR/worktrees.py" create --path "$WORKTREE" --base "$BASE" \
+    --base-ref "$(pulmu_resolve_base "$BASE")" -- "${args[@]}" "$TASK"
+fi
 
 # Detection is deliberately non-mutating for run.json. Initialization happens
 # only after repository provenance and the Pulmu branch are known.
@@ -66,7 +80,8 @@ if [[ "$PULMU_GITHUB_CREATE_PR" == "true" ]] && pulmu_github_ready; then
   DELIVERY="github"
 fi
 
-BASE="$(pulmu_base_branch)"
+BASE="${BASE_OVERRIDE:-$(pulmu_base_branch)}"
+pulmu_ref_exists "$BASE" || pulmu_die "base branch does not exist: $BASE"
 
 SLUG="${SLUG_OVERRIDE:-$(pulmu_slug "$TASK")}"
 [[ "$SLUG" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || pulmu_die "Ignite slug must be lowercase kebab-case"
@@ -94,7 +109,7 @@ printf '%s\n' "$TASK" > "$GIT_DIR/pulmu-task"
 mkdir -p "$METADATA_DIR"
 rm -f "$METADATA_DIR"/* "$GIT_DIR/pulmu-ship-commit" "$GIT_DIR/pulmu-quench.log" "$GIT_DIR/pulmu/ship-reverify.json"
 rm -rf "$GIT_DIR/pulmu-reviews"
-pulmu_metadata_write version 1
+pulmu_metadata_write version 3
 pulmu_metadata_write status provisional
 pulmu_metadata_write task "$TASK"
 pulmu_metadata_write task_type "$TYPE"

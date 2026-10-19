@@ -15,9 +15,11 @@ agent_files=(
   pulmu-architect.toml
   pulmu-designer.toml
   pulmu-smith.toml
+  pulmu-smith-high.toml
   pulmu-failure-analyst.toml
   pulmu-reviewer.toml
   pulmu-test-reviewer.toml
+  pulmu-test-reviewer-high.toml
   pulmu-security-reviewer.toml
   pulmu-compat-reviewer.toml
   pulmu-design-reviewer.toml
