@@ -11,9 +11,11 @@ Hone reviews the actual candidate and task intent at the assurance level finaliz
 - `pulmu_compat_reviewer`: public API, schema, migration, external integration, and compatibility risk; whenever `compatibilityReview` is true
 - `pulmu_design_reviewer`: Pattern intent, design consistency, responsive behavior, interaction states, accessibility, and visual restraint; when Pattern ran on an independent-review path
 
-All reviewers remain read-only. Their tasks are not added to `update_plan`.
+All reviewers are instructed to remain read-only; effective permissions are inherited from the parent session. Their tasks are not added to `update_plan`.
 
 Reviewer routing and focus consume the canonical metadata finalized after Shape. Security and compatibility flags are evidence-based routing decisions, not fields that Ship re-infers from the finished diff.
+
+For metadata formats 2 and 3, follow [execution-evidence.md](execution-evidence.md): preserve the original structured result and dispatch brief and pass `--provenance <file>` when recording the receipt. Format 3 also requires a completed matching invocation record under `agent-model-policy.md`, even when runtime identity is unknown. Role names alone do not establish independent execution. Legacy receipts retain explicitly legacy assurance.
 
 ## Independent input and receipt
 
@@ -38,6 +40,7 @@ bash <pulmu-skill-dir>/scripts/metadata.sh review \
   --findings "<PASS or concise finding summary>" \
   --evidence "<file/symbol/behavior checked>" \
   --limitations "<none or unavailable evidence>" \
+  --provenance "<execution-and-source-record.json>" \
   --expect-run-id "$RUN_ID"
 ```
 

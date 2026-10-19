@@ -278,7 +278,7 @@ installer_test() {
   h="$(fixture_tempdir)"
   HOME="$h" bash "$ROOT/install.sh" >/dev/null
   agent_count="$(find "$h/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
-  if [[ -f "$h/.agents/skills/pulmu/SKILL.md" && -f "$h/.agents/skills/pulmu/VERSION" && -f "$h/.agents/skills/pulmu/agents/openai.yaml" && -f "$h/.codex/agents/pulmu-smith.toml" && -x "$h/.agents/skills/pulmu/scripts/ship.sh" && -x "$h/.agents/skills/pulmu/scripts/run-context.sh" && -f "$h/.agents/skills/pulmu/scripts/run-context.py" && "$agent_count" -eq 12 ]] &&
+  if [[ -f "$h/.agents/skills/pulmu/SKILL.md" && -f "$h/.agents/skills/pulmu/VERSION" && -f "$h/.agents/skills/pulmu/agents/openai.yaml" && -f "$h/.codex/agents/pulmu-smith.toml" && -x "$h/.agents/skills/pulmu/scripts/ship.sh" && -x "$h/.agents/skills/pulmu/scripts/run-context.sh" && -f "$h/.agents/skills/pulmu/scripts/run-context.py" && "$agent_count" -eq 14 ]] &&
     grep -q 'display_name: "Pulmu Workflows"' "$h/.agents/skills/pulmu/agents/openai.yaml"; then
     status=0
   else
@@ -320,7 +320,7 @@ local_installation_test() {
     grep -Fq "Installation scope: local ($target)" <<<"$output" || exit 1
     [[ -x "$target/.agents/skills/pulmu/scripts/ship.sh" ]] || exit 1
     agent_count="$(find "$target/.codex/agents" -name 'pulmu-*.toml' -type f | wc -l)"
-    [[ "$agent_count" -eq 12 ]] || exit 1
+    [[ "$agent_count" -eq 14 ]] || exit 1
     [[ "$(git hash-object "$target/.codex/config.toml")" == "$before" ]] || exit 1
     # Updating replaces only the installed Pulmu copy, including stale resources.
     printf 'old installed file\n' > "$target/.agents/skills/pulmu/obsolete.txt"
@@ -376,7 +376,7 @@ demo_packaging_test() {
   target="$tmp/demo"
   bash "$ROOT/scripts/create-demo-repo.sh" "$target" >/dev/null
   agent_count="$(find "$target/.codex/agents" -maxdepth 1 -name 'pulmu-*.toml' -type f | wc -l)"
-  if [[ -f "$target/.agents/skills/pulmu/SKILL.md" && -f "$target/.agents/skills/pulmu/scripts/run-context.py" && -f "$target/.agents/skills/pulmu/references/run-context.md" && -f "$target/.codex/config.toml" && -f "$target/.codex/agents/pulmu-smith.toml" && "$agent_count" -eq 12 ]]; then
+  if [[ -f "$target/.agents/skills/pulmu/SKILL.md" && -f "$target/.agents/skills/pulmu/scripts/run-context.py" && -f "$target/.agents/skills/pulmu/references/run-context.md" && -f "$target/.codex/config.toml" && -f "$target/.codex/agents/pulmu-smith.toml" && "$agent_count" -eq 14 ]]; then
     status=0
   else
     status=1
@@ -394,36 +394,41 @@ import tomllib
 root = pathlib.Path(sys.argv[1])
 agent_dir = root / ".codex" / "agents"
 expected = {
-    "pulmu-explorer.toml": ("pulmu_explorer", "gpt-6-luna", "medium", "read-only"),
-    "pulmu-test-scout.toml": ("pulmu_test_scout", "gpt-6-luna", "medium", "read-only"),
-    "pulmu-risk-scout.toml": ("pulmu_risk_scout", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-architect.toml": ("pulmu_architect", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-designer.toml": ("pulmu_designer", "gpt-6.1-sol", "medium", "read-only"),
-    "pulmu-smith.toml": ("pulmu_smith", "gpt-6.1-sol", "medium", "workspace-write"),
-    "pulmu-failure-analyst.toml": ("pulmu_failure_analyst", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-reviewer.toml": ("pulmu_reviewer", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-test-reviewer.toml": ("pulmu_test_reviewer", "gpt-6.1-sol", "medium", "read-only"),
-    "pulmu-security-reviewer.toml": ("pulmu_security_reviewer", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-compat-reviewer.toml": ("pulmu_compat_reviewer", "gpt-6.1-sol", "high", "read-only"),
-    "pulmu-design-reviewer.toml": ("pulmu_design_reviewer", "gpt-6.1-sol", "medium", "read-only"),
+    "pulmu-explorer.toml": ("pulmu_explorer", "gpt-6-luna", "medium"),
+    "pulmu-test-scout.toml": ("pulmu_test_scout", "gpt-6-luna", "medium"),
+    "pulmu-risk-scout.toml": ("pulmu_risk_scout", "gpt-6.1-sol", "high"),
+    "pulmu-architect.toml": ("pulmu_architect", "gpt-6.1-sol", "high"),
+    "pulmu-designer.toml": ("pulmu_designer", "gpt-6.1-sol", "medium"),
+    "pulmu-smith.toml": ("pulmu_smith", "gpt-6.1-sol", "medium"),
+    "pulmu-smith-high.toml": ("pulmu_smith_high", "gpt-6.1-sol", "high"),
+    "pulmu-failure-analyst.toml": ("pulmu_failure_analyst", "gpt-6.1-sol", "high"),
+    "pulmu-reviewer.toml": ("pulmu_reviewer", "gpt-6.1-sol", "high"),
+    "pulmu-test-reviewer.toml": ("pulmu_test_reviewer", "gpt-6.1-sol", "medium"),
+    "pulmu-test-reviewer-high.toml": ("pulmu_test_reviewer_high", "gpt-6.1-sol", "high"),
+    "pulmu-security-reviewer.toml": ("pulmu_security_reviewer", "gpt-6.1-sol", "high"),
+    "pulmu-compat-reviewer.toml": ("pulmu_compat_reviewer", "gpt-6.1-sol", "high"),
+    "pulmu-design-reviewer.toml": ("pulmu_design_reviewer", "gpt-6.1-sol", "medium"),
 }
 
 actual_files = {path.name for path in agent_dir.glob("pulmu-*.toml")}
 assert actual_files == set(expected), (actual_files, set(expected))
 
 agents = {}
-required = {"name", "description", "model", "model_reasoning_effort", "sandbox_mode", "developer_instructions"}
+required = {"name", "description", "model", "model_reasoning_effort", "developer_instructions"}
 for filename, contract in expected.items():
     data = tomllib.loads((agent_dir / filename).read_text())
     assert required <= data.keys(), (filename, required - data.keys())
-    actual = (data["name"], data["model"], data["model_reasoning_effort"], data["sandbox_mode"])
+    actual = (data["name"], data["model"], data["model_reasoning_effort"])
     assert actual == contract, (filename, actual, contract)
     agents[data["name"]] = data
-    if data["name"] != "pulmu_smith":
+    if data["name"] not in {"pulmu_smith", "pulmu_smith_high"}:
         assert "Do not modify files" in data["developer_instructions"], filename
 
-writers = [name for name, data in agents.items() if data["sandbox_mode"] == "workspace-write"]
-assert writers == ["pulmu_smith"], writers
+for role in ("pulmu_smith", "pulmu_test_reviewer"):
+    assert agents[role]["developer_instructions"] == agents[role + "_high"]["developer_instructions"]
+
+assert all("sandbox_mode" not in data for data in agents.values()), "agent files cannot override parent permissions"
+assert all("Permissions are inherited" in data["developer_instructions"] for data in agents.values())
 smith_rules = agents["pulmu_smith"]["developer_instructions"].lower()
 for forbidden in ("git commit", "push", "pull request", "force-push"):
     assert forbidden in smith_rules, forbidden
@@ -590,6 +595,7 @@ finalize_metadata() {
   [[ -n "${11:-}" ]] && args+=(--test-review "${11}")
   [[ -n "$run_id" ]] && args+=(--expect-run-id "$run_id")
   bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" "${args[@]}" >/dev/null || return 1
+  python3 "$ROOT/tests/evidence-fixture.py" shape "$ROOT" >/dev/null || return 1
   [[ "${PULMU_TEST_SKIP_PLAN:-0}" == 1 ]] && return 0
   checks=()
   if [[ -f package.json ]] && python3 -c 'import json; raise SystemExit(0 if "test" in json.load(open("package.json")).get("scripts", {}) else 1)' 2>/dev/null; then
@@ -606,6 +612,10 @@ finalize_metadata() {
 metadata_for_run() {
   local command="$1" run_id; shift
   run_id="$(cat .git/pulmu-metadata/run_id)"
+  if [[ "$command" == review ]]; then
+    proof="$(python3 "$ROOT/tests/evidence-fixture.py" review "$ROOT" "$@")" || return 1
+    set -- "$@" --provenance "$proof"
+  fi
   bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" "$command" "$@" --expect-run-id "$run_id"
 }
 
@@ -623,6 +633,7 @@ quench_for_run() {
     bash "$ROOT/.agents/skills/pulmu/scripts/run-context.sh" set-stage hammer --expect-run-id "$run_id" >/dev/null || return 1
   fi
   bash "$ROOT/.agents/skills/pulmu/scripts/run-context.sh" set-stage quench --expect-run-id "$run_id" >/dev/null
+  python3 "$ROOT/tests/evidence-fixture.py" ui "$ROOT" >/dev/null || return 1
   bash "$ROOT/.agents/skills/pulmu/scripts/quench.sh" --expect-run-id "$run_id"
 }
 
@@ -642,7 +653,7 @@ record_review_results() {
   for role in "${roles[@]}"; do
     bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" review-attempt --role "$role" --candidate "$candidate" \
       --expect-run-id "$run_id" >/dev/null || return 1
-    bash "$ROOT/.agents/skills/pulmu/scripts/metadata.sh" review --role "$role" --candidate "$candidate" --completion complete \
+    metadata_for_run review --role "$role" --candidate "$candidate" --completion complete \
       --severity none --findings 'No blocking findings in fixture review.' --evidence 'Exact fixture candidate inspected.' --limitations none \
       --expect-run-id "$run_id" >/dev/null || return 1
   done
@@ -888,8 +899,9 @@ review_receipt_gate_test() {
     bash "$ROOT/.agents/skills/pulmu/scripts/run-context.sh" set-stage hone --expect-run-id "$run_id" >/dev/null
     candidate="$(cat .git/pulmu-metadata/quench_fingerprint)"
     metadata_for_run review-attempt --role pulmu_test_reviewer --candidate "$candidate" >/dev/null
+    # Repair only the malformed severity; retain the original substantive text.
     if metadata_for_run review --role pulmu_test_reviewer --candidate "$candidate" --completion complete --severity invalid \
-      --findings 'Malformed severity.' --evidence 'fixture' --limitations none >/dev/null 2>&1; then exit 1; fi
+      --findings 'No test gaps.' --evidence 'Fixture plan passed.' --limitations none >/dev/null 2>&1; then exit 1; fi
     metadata_for_run review-attempt --role pulmu_test_reviewer --candidate "$candidate" >/dev/null
     if metadata_for_run review-attempt --role pulmu_test_reviewer --candidate "$candidate" >/dev/null 2>&1; then exit 1; fi
     metadata_for_run review --role pulmu_test_reviewer --candidate "$candidate" --completion complete --severity none \
@@ -1344,7 +1356,8 @@ PY
     subdir_tree="$(cd src && bash -c 'source "$1/common.sh"; pulmu_candidate_tree' _ "$scripts")"
     [[ "$subdir_tree" == "$root_tree" ]] || exit 1
     root_fingerprint="$(bash -c 'source "$1/common.sh"; pulmu_changed_fingerprint' _ "$scripts")"
-    printf 'subdirectory candidate publication\n' > "$tmp/subdir-quench.log"
+    bash "$scripts/quench.sh" --expect-run-id "$run_id" >/dev/null
+    cp .git/pulmu-quench.log "$tmp/subdir-quench.log"
     bash "$scripts/run-context.sh" quench-evidence begin --attempt subdir-scope --expect-run-id "$run_id" >/dev/null
     (
       cd src
@@ -1804,7 +1817,8 @@ run_test 'installer restores backups on interruption and preserves failed rollba
 run_test 'uninstaller removes skill and all Pulmu agents' uninstaller_test
 run_test 'project-local install and removal preserve unrelated configuration' local_installation_test
 run_test 'demo repository packages all Pulmu agents' demo_packaging_test
-run_test 'agent TOMLs preserve routing and single-writer contracts' agent_contract_test
+run_test 'agent TOMLs preserve role instructions without claiming permission isolation' agent_contract_test
+run_test 'durable intent, execution evidence, recovery and parallel worktrees' python3 -B "$ROOT/tests/test_execution_evidence.py"
 run_test 'efficiency reports preserve paired quality and usage evidence' python3 -B "$ROOT/tests/test_benchmark_report.py"
 run_test 'skill preserves seven stages with conditional Pattern' skill_contract_test
 run_test 'all task types map to branch, commit, and label dimensions' task_mapping_test

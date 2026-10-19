@@ -28,10 +28,10 @@ For a consequential UI request with no product-level visual and experience direc
 
 For an actual development run:
 
-1. Expose `🔥 Pulmu — Starting the forge workflow` exactly once, then create the native seven-step plan with Codex's `update_plan` tool from [stage-contract.md](references/stage-contract.md).
+1. Expose `🔥 Pulmu — Starting the forge workflow` exactly once, then create the native seven-step plan with Codex's `update_plan` tool when available, using the documented progress fallback otherwise, from [stage-contract.md](references/stage-contract.md).
 2. Keep the seven stage names and order stable. Pattern remains conditional inside Shape.
 3. Designate exactly one task-file writer for the run: the main Orchestrator or `pulmu_smith`. Never run them as competing writers.
-4. Use subagents only when their independent evidence is worth their context and handoff cost. Tiny low-risk work may use zero subagents.
+4. Read-only roles are instructions, not separate permission sandboxes; all agents inherit parent permissions. Use subagents only when their independent evidence is worth their context and handoff cost. Tiny low-risk work may use zero subagents.
 5. Quench must execute the finalized verification plan and bind PASS evidence to the exact candidate.
 6. Hone must record the declared assurance honestly. A self-review receipt is distinct from an independent reviewer receipt and cannot satisfy an independent-review route.
 7. Medium/high risk requires fresh independent review. Explicit security or compatibility risk requires its specialist reviewer regardless of Forge depth.
@@ -51,7 +51,7 @@ Forge depth and execution path are separate decisions. Select Quick, Standard, o
 | `reviewed` | Orchestrator | fresh independent review | implementation benefits from one continuous strong context but failure cost warrants separation |
 | `delegated` | Orchestrator or `pulmu_smith` | fresh independent review | independent investigation or a separate writer materially helps with a broad, unfamiliar, or risky change |
 
-The configured model and effort values in `.codex/agents` are defaults for roles that are actually spawned: Luna for bounded evidence collection, Sol for implementation and judgment. Do not replace those role defaults merely because the main session uses another model. Read [agent-orchestration.md](references/agent-orchestration.md) only when delegating investigation, Pattern work, implementation, failure analysis, or independent review. Give each agent a self-contained scoped brief, not the full conversation; preserve fresh independent reviewer input. Reuse established evidence instead of asking another scout to repeat the same search.
+The configured model and effort values in `.codex/agents` are defaults for roles that are actually spawned: Luna for bounded evidence collection, Sol for implementation and judgment. Do not replace those role defaults merely because the main session uses another model. Read [agent-orchestration.md](references/agent-orchestration.md) only when delegating investigation, Pattern work, implementation, failure analysis, or independent review. For every dispatch, follow [agent-model-policy.md](references/agent-model-policy.md): select a profile, announce role/requested model/effort and reason, retain invocation and outcome, and distinguish runtime-reported settings from unknowns. Give each agent a self-contained scoped brief, not the full conversation; preserve fresh independent reviewer input. Reuse established evidence instead of asking another scout to repeat the same search.
 
 After Shape, finalize both task and routing metadata:
 
@@ -69,16 +69,18 @@ bash <pulmu-skill-dir>/scripts/metadata.sh finalize \
 
 `direct` is valid only for low-risk Orchestrator-written work with self-review and no specialist/test reviewer. `reviewed` uses the Orchestrator and independent review. `delegated` uses independent review and records whichever single writer was selected. The runtime rejects inconsistent combinations.
 
+Read [execution-evidence.md](references/execution-evidence.md). For new-format runs, persist the Shape acceptance criteria, boundaries, accepted clarifications, assumptions, Pattern brief, and required UI scenarios with `metadata.sh shape --file <file> --expect-run-id "$RUN_ID"`. Hammer seals this contract and the verification plan. Missing required browser/native tools or observations block UI completion; a mock or source review cannot substitute for execution.
+
 Record at least one repository-relative, noninteractive verification command with `metadata.sh verification` before Hammer. Documentation work still needs a relevant check such as `git diff --check`.
 
 ## Stage routing
 
-- **Ignite:** after the necessity decision, choose the work-branch name from the user's explicit name first, then explicit repository naming instructions, then the default `<type>/<slug>` (optionally namespaced by `git.branch_prefix`). Do not infer a team convention from a few existing branches. Pass a user/repository-specific full name using `scripts/ignite.sh --branch "<name>"`; include issue IDs only when supplied or required by an explicit repository rule. Capture `PULMU_RUN_ID` and the actual branch reported after collision handling, and keep every later mutation bound to the run ID.
+- **Ignite:** for explicitly requested parallel issues, read [parallel-worktrees.md](references/parallel-worktrees.md) and use one separate worktree/run per issue. Do not automate issue scheduling. Otherwise preserve the ordinary single-worktree behavior. After the necessity decision, choose the work-branch name from the user's explicit name first, then explicit repository naming instructions, then the default `<type>/<slug>` (optionally namespaced by `git.branch_prefix`). Do not infer a team convention from a few existing branches. Pass a user/repository-specific full name using `scripts/ignite.sh --branch "<name>"`; include issue IDs only when supplied or required by an explicit repository rule. Capture `PULMU_RUN_ID` and the actual branch reported after collision handling, and keep every later mutation bound to the run ID.
 - **Inspect:** the Orchestrator may inspect directly. Spawn focused scouts only for independent questions that can usefully run in parallel.
 - **Shape:** state acceptance behavior, affected boundaries, verification, risks, non-goals, Forge depth, execution path, writer, and review routing. Use an Architect only when the design work justifies a separate context.
 - **Pattern:** required for meaningful user-facing UI/UX changes, but the Orchestrator may own it. A Designer is optional. Follow [design-pass.md](references/design-pass.md); when the project lacks a coherent UI direction, also read [design-selection.md](references/design-selection.md).
 - **Hammer:** the designated writer implements. Record `pulmu_smith` as active only when Smith is the writer. The main session writes directly only when metadata names `orchestrator`.
-- **Quench:** run `scripts/quench.sh`. Use the bounded retry behavior in [stage-contract.md]. A Failure Analyst is conditional.
+- **Quench:** perform required browser/native scenarios on the actual candidate, record tool/target/observations/artifacts with `metadata.sh ui`, then run `scripts/quench.sh`. Unavailable or failed required UI evidence blocks PASS. Use the bounded retry behavior in [stage-contract.md]. A Failure Analyst is conditional.
 - **Hone:** follow [review-contract.md](references/review-contract.md). Direct work records `pulmu_self_review`; reviewed/delegated work starts required agents in fresh contexts. Security and compatibility flags always route specialists.
 - **Ship:** generate delivery metadata from the actual diff, then run `scripts/ship.sh` for local or GitHub delivery.
 
@@ -93,6 +95,6 @@ This keeps the run ID, branch, work, and consumed retry counts, clears active ag
 
 ## Completion
 
-For a successful development run, report Forge depth, execution path, designated writer, verification, review assurance (`self` or `independent`), commit, and optional PR URL. Say “reviewed commit” only when review metadata shows what kind of review occurred; do not present self-review as independent review.
+For a successful development run, report any legacy assurance limitations, actual UI checks and evidence references when required, recorded reviewer execution/source provenance, Forge depth, execution path, designated writer, verification, review assurance (`self` or `independent`), commit, and optional PR URL. Say “reviewed commit” only when review metadata shows what kind of review occurred; do not present self-review as independent review.
 
 Awaiting a required clarification is pending input, not a failed stage; preserve the current work and resume after the answer. If a stage otherwise cannot safely continue, record a concise failure with `run-context.sh fail` and report the stage, reason, preserved branch, and one recovery action. A failed Quench or blocking Hone result never proceeds to Ship.

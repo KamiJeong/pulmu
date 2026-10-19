@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-usage() { pulmu_die "usage: metadata.sh finalize|verification|review-attempt|review|hone|delivery [options]"; }
+usage() { pulmu_die "usage: metadata.sh finalize|shape|ui|verification|review-attempt|review|hone|delivery [options]"; }
 ROOT="$(pulmu_repo_root)"; cd "$ROOT"
 COMMAND="${1:-}"; [[ -n "$COMMAND" ]] || usage; shift
 pulmu_load_config "$ROOT"
@@ -62,6 +62,10 @@ raise SystemExit(0 if actual == expected else 1)' "$task" "$type" "$base" "$bran
 }
 
 case "$COMMAND" in
+  shape|ui)
+    if [[ "$COMMAND" == shape ]]; then operation=shape-contract; else operation=ui-result; fi
+    pulmu_run_context "$operation" "$@"
+    ;;
   finalize)
     TYPE=""; FORGE=""; RISK=""; AREAS=""; PATTERN=""; SECURITY=""; COMPAT=""; EXECUTION=""; WRITER=""; REVIEW=""; TEST_REVIEW=""; EXPECT_RUN_ID=""
     while [[ $# -gt 0 ]]; do
@@ -218,20 +222,21 @@ case "$COMMAND" in
     pulmu_run_context review-attempt --role "$ROLE" --candidate "$CANDIDATE" --expect-run-id "$EXPECT_RUN_ID"
     ;;
   review)
-    ROLE=""; CANDIDATE=""; COMPLETION=""; SEVERITY=""; FINDINGS=""; EVIDENCE=""; LIMITATIONS="none"; EXPECT_RUN_ID=""
+    ROLE=""; CANDIDATE=""; COMPLETION=""; SEVERITY=""; FINDINGS=""; EVIDENCE=""; LIMITATIONS="none"; EXPECT_RUN_ID=""; PROVENANCE=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --role) ROLE="${2:-}"; shift 2 ;; --candidate) CANDIDATE="${2:-}"; shift 2 ;;
         --completion) COMPLETION="${2:-}"; shift 2 ;;
         --severity) SEVERITY="${2:-}"; shift 2 ;; --findings) FINDINGS="${2:-}"; shift 2 ;;
         --evidence) EVIDENCE="${2:-}"; shift 2 ;;
+        --provenance) PROVENANCE="${2:-}"; shift 2 ;;
         --limitations) LIMITATIONS="${2:-}"; shift 2 ;; --expect-run-id) EXPECT_RUN_ID="${2:-}"; shift 2 ;;
         *) pulmu_die "unknown metadata review option: $1" ;;
       esac
     done
     pulmu_metadata_guard "$EXPECT_RUN_ID"
     pulmu_run_context review-result --role "$ROLE" --candidate "$CANDIDATE" --completion "$COMPLETION" --severity "$SEVERITY" \
-      --findings "$FINDINGS" --evidence "$EVIDENCE" --limitations "$LIMITATIONS" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
+      --findings "$FINDINGS" --evidence "$EVIDENCE" --limitations "$LIMITATIONS" --provenance "$PROVENANCE" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
     printf 'PULMU_REVIEW_RESULT=%s\n' "$ROLE"
     ;;
   hone)

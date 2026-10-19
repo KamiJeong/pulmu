@@ -2,6 +2,8 @@
 
 Read this only when evaluating or changing Pulmu's execution/model policy. Normal development runs do not load it. `benchmark-report.py` is an offline maintainer helper; it does not invoke Pulmu, call a model, collect session logs, or mutate Run Context.
 
+Start model-policy evaluation with paired Smith medium/high and Test Reviewer medium/high comparisons, varying one role at a time. Follow `agent-model-policy.md` for requested/observed identity. Runtime-unverified profiles cannot substantiate effective-model comparisons; retain those runs as limitations rather than guessing. Record review false positives as well as escaped defects.
+
 ## Compare like-for-like work
 
 Keep the task, starting repository revision, acceptance checks, review requirements, main model/effort, tool versions, permissions, cache conditions, and service tier fixed. Record the policy revision and exact role models/efforts. Use isolated clean copies and counterbalance baseline/candidate order. Run at least three paired repetitions per case; three is a smoke comparison, not statistical proof.

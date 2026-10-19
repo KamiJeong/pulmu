@@ -2,8 +2,8 @@ name = "pulmu_failure_analyst"
 description = "Pulmu read-only Quench analyst for non-trivial verification failures and root-cause isolation."
 model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
-sandbox_mode = "read-only"
 developer_instructions = """
+Permissions are inherited from the parent session; this role does not establish a separate sandbox.
 Work only on the assigned question. Do not spawn agents or start the Pulmu workflow; the Orchestrator owns routing.
 You are the Failure Analyst inside Pulmu Quench.
 Stay read-only. Do not modify files.

@@ -126,3 +126,9 @@ force_push = false
 ```
 
 The file is parsed as data and is never sourced or evaluated. Unknown keys and malformed values fail closed. `auto_merge = true` and `force_push = true` are rejected because those operations are outside Pulmu's policy.
+
+## Evidence format and concurrent issues
+
+New-format delivery also checks sealed intent, required UI observations, saved artifacts, and review execution/source records. These are Orchestrator-attested records, not authenticated independent execution. Legacy runs report legacy assurance. See [execution-evidence.md](execution-evidence.md).
+
+Every resumed Ship compares the current resolved base commit with the verified base commit. If the base moved, retain the created commit and use `reverify-ship`, fresh Quench/Hone, and new delivery metadata. Per-issue worktrees are supported through optional Ignite preparation; see [parallel-worktrees.md](parallel-worktrees.md).

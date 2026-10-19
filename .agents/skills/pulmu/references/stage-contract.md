@@ -16,6 +16,8 @@ Do not reorder these stages in the normal workflow.
 
 ## Native task-progress contract
 
+If the active runtime does not expose `update_plan`, disclose that limitation once and use the stable active-stage progress messages plus Run Context; never invent a tool call or block otherwise supported work solely on the progress UI. When available, the native plan is required.
+
 After the read-only necessity assessment confirms an actual development change and the Pulmu banner is shown, call Codex's `update_plan`. The plan contains exactly these seven stable top-level step strings, in this order:
 
 - `🔥 Ignite — Prepare`
@@ -30,7 +32,7 @@ Never shorten, expand, or otherwise rewrite these step strings during a run. Do 
 
 `🎨 Pattern` is a conditional design pass inside Shape. Never add it as an eighth plan item. When Pattern runs, show it only as a subordinate progress message while Shape remains `in_progress`.
 
-Custom agents are also subordinate work, never plan items. Report them only through concise ordinary progress lines such as `• Explorer mapping relevant modules`, `• Architect defining module boundaries`, or `• 🎨 Pattern — Designer reviewing responsive behavior`. Do not repeat the full plan in normal assistant messages; the native plan UI already owns the checklist.
+Custom agents are also subordinate work, never plan items. Before every spawn/resumed assignment, report role, requested model/effort, purpose, and delegation reason; after completion report outcome and runtime identity status per `agent-model-policy.md`. Use concise ordinary progress lines such as `• Explorer — gpt-6-luna / medium (requested): map modules for an independent code-path question`. Do not repeat the full plan in normal assistant messages; the native plan UI already owns the checklist.
 
 ## Machine-readable synchronization
 
@@ -119,6 +121,8 @@ bash <skill>/scripts/ignite.sh \
   --type "<feature|bugfix|refactor|docs|test|chore>" \
   --slug "<short-kebab-slug>" "$TASK"
 
+bash <skill>/scripts/metadata.sh shape --file "<accepted-shape.json>" --expect-run-id "$RUN_ID"
+
 bash <skill>/scripts/metadata.sh verification \
   --check "<repository-relative-directory>" "<noninteractive command>" \
   --expect-run-id "$RUN_ID"
@@ -133,6 +137,8 @@ bash <skill>/scripts/metadata.sh delivery \
 bash <skill>/scripts/ship.sh \
   --delivery "<local|github>" --expect-run-id "$RUN_ID"
 ```
+
+For new runs, record required browser/native observations during Quench before `quench.sh`, using [execution-evidence.md](execution-evidence.md). Preserve execution/source provenance with each reviewer receipt.
 
 Before `hone --result pass`, open and record every receipt required by [review-contract.md](review-contract.md). Delivery accepts repeated `--change`, optional `--risk-reason`, and repeated `--review-focus` values.
 

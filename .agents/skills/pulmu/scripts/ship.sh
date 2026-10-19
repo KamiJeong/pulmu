@@ -159,6 +159,7 @@ printf 'PULMU_DELIVERY=%s\n' "$DELIVERY"
 printf 'PULMU_EXECUTION=%s\n' "$EXECUTION_MODE"
 printf 'PULMU_WRITER=%s\n' "$WRITER"
 printf 'PULMU_REVIEW=%s\n' "$REVIEW_MODE"
+pulmu_run_context evidence-summary --expect-run-id "$EXPECT_RUN_ID"
 
 if [[ "$DELIVERY" == "local" ]]; then
   pulmu_run_context complete --delivery local --commit "$COMMIT" --expect-run-id "$EXPECT_RUN_ID" >/dev/null
