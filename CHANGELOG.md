@@ -4,6 +4,37 @@ Notable changes to Pulmu are documented in this file. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-19
+
+### Added
+
+- Sealed Shape contracts preserve accepted requirements, scope, clarifications, assumptions, and Pattern decisions together with the finalized verification plan.
+- Candidate-bound browser/native UI evidence records actual tool execution, tested instance/build identity, observed scenarios, and retained screenshots or traces. Missing required tools or evidence block completion.
+- Reviewer execution/source records retain dispatch briefs, declared fresh context, original structured results, and model invocation provenance. Requested model settings remain distinct from runtime-reported or unknown effective settings.
+- Optional high-effort Smith and Test Reviewer profiles, explicit profile-selection guidance, and per-invocation progress and assurance reporting.
+- Per-issue worktree preparation and listing with shared-repository locking and separate branches, run IDs, and evidence stores, preserving the source working tree and active run.
+
+### Changed
+
+- Clarify that custom agents inherit parent permissions; read-only role instructions do not create separate permission sandboxes.
+- Extend installation/removal coverage, workflow references, and English/Korean usage guidance for execution evidence, model records, and isolated concurrent runs.
+
+### Fixed
+
+- Preserve substantive reviewer verdicts across format repairs, including repairs resumed in a fresh execution, and reject malformed original results.
+- Reject stale or altered evidence and recheck the resolved base commit when recovering Ship delivery.
+- Accept non-UTF-8 verification output while preserving original logs and passing-marker checks.
+- Align the Korean README's metadata-format description with format 3.
+
+### Compatibility
+
+- Preserve `$pulmu`, the seven stages, conditional Pattern, one designated writer per run, and required independent/specialist reviews.
+- New runs use metadata format 3; Run Context remains schema 2. Legacy runs remain supported with their weaker evidence/model assurance reported explicitly.
+- Execution/source provenance is Orchestrator-attested, not authenticated proof of execution, model identity, or reviewer independence. Pulmu does not provide a browser driver or enforce role-level permission isolation.
+- Worktree support prepares isolated concurrent runs; automatic issue scheduling, merging, worktree deletion, and application-resource allocation remain outside this release.
+- Reinstall project-local or global copies and start a new Codex session to load updated instructions and agent profiles. Installation does not grant model access.
+- Browser/model fixtures validate evidence mechanics only. Live Codex end-to-end runs and paired model quality, cost, or speed improvements remain unmeasured.
+
 ## [0.5.0] - 2026-10-07
 
 ### Changed

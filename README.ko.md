@@ -36,7 +36,7 @@ Ignite, Inspect, Shape, Hammer, Quench, Hone, Ship은 내부 단계입니다. �
 
 독립적인 여러 이슈는 `$pulmu`에 이슈별 worktree 사용을 요청할 수 있습니다. Orchestrator는 원래 작업 디렉터리와 진행 중인 실행을 보존하고 각 이슈에 별도 worktree·브랜치·실행 ID·증거 저장소를 준비합니다. 각 실행의 작성자는 한 명이며 검증과 리뷰를 각각 거칩니다. 이슈 목록 자동 배분·자동 병합·worktree 자동 삭제는 포함하지 않습니다. 포트·앱 인스턴스·데이터베이스·테스트 계정도 필요한 만큼 분리해야 합니다.
 
-내부 계약은 [실행 증거](.agents/skills/pulmu/references/execution-evidence.md)와 [병렬 worktree](.agents/skills/pulmu/references/parallel-worktrees.md)를 참고하세요. 새 실행의 메타데이터 형식은 2이며 Run Context 스키마는 2를 유지합니다.
+내부 계약은 [실행 증거](.agents/skills/pulmu/references/execution-evidence.md)와 [병렬 worktree](.agents/skills/pulmu/references/parallel-worktrees.md)를 참고하세요. 새 실행의 메타데이터 형식은 3이며 Run Context 스키마는 2를 유지합니다.
 
 ## 빠른 시작
 
